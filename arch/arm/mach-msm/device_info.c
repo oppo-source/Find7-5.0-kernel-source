@@ -49,6 +49,8 @@ static int device_read_proc(char *page, char **start, off_t off,
 	return len;
 }
 
+
+
 int register_device_proc(char *name, char *version, char *manufacture)
 {
 	struct proc_dir_entry *d_entry;

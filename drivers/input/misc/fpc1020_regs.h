@@ -11,6 +11,7 @@
 #define __FPC1020_REGS_H
 
 typedef enum {
+	/* --- Common registers --- */
 	FPC102X_REG_FPC_STATUS			= 20,	/* RO, 1 bytes	*/
 	FPC102X_REG_READ_INTERRUPT		= 24,	/* RO, 1 byte	*/
 	FPC102X_REG_READ_INTERRUPT_WITH_CLEAR	= 28,	/* RO, 1 byte	*/
@@ -39,9 +40,15 @@ typedef enum {
 	FPC102X_REG_PXL_CTRL			= 168,	/* RW, 2 bytes	*/
 	FPC102X_REG_FPC_DEBUG			= 208,	/* RO, 1 bytes	*/
 	FPC102X_REG_FINGER_PRESENT_STATUS	= 212,	/* RO, 2 bytes	*/
-	FPC102X_REG_FNGR_DET_THRES		= 216,	/* RW, 1 byte	*/
-	FPC102X_REG_FNGR_DET_CNTR		= 220,	/* RW, 2 bytes	*/
 	FPC102X_REG_HWID			= 252,	/* RO, 2 bytes	*/
+	/* --- fpc1020/21 specific --- */
+	FPC1020_REG_FNGR_DET_THRES		= 216,	/* RW, 1 byte	*/
+	FPC1020_REG_FNGR_DET_CNTR		= 220,	/* RW, 2 bytes	*/
+	/* --- fpc1150 specific --- */
+	FPC1150_REG_OFFSET			= 1000, /* Not a register ! */
+	FPC1150_REG_FNGR_DET_THRES		= 1216,	/* RW, 4 byte	*/
+	FPC1150_REG_FNGR_DET_CNTR		= 1220,	/* RW, 4 bytes	*/
+
 } fpc1020_reg_t;
 
 #define FPC1020_REG_MAX_SIZE	10
@@ -75,15 +82,21 @@ typedef enum {
 	((reg) == FPC102X_REG_PXL_CTRL) ?			2 : \
 	((reg) == FPC102X_REG_FPC_DEBUG) ?			2 : \
 	((reg) == FPC102X_REG_FINGER_PRESENT_STATUS) ?		2 : \
-	((reg) == FPC102X_REG_FNGR_DET_THRES) ?			1 : \
-	((reg) == FPC102X_REG_FNGR_DET_CNTR) ?			2 : \
-	((reg) == FPC102X_REG_HWID) ?				2 : 0)
+	((reg) == FPC102X_REG_HWID) ?				2 : \
+								    \
+	((reg) == FPC1020_REG_FNGR_DET_THRES) ?			1 : \
+	((reg) == FPC1020_REG_FNGR_DET_CNTR) ?			2 : \
+								    \
+	((reg) == FPC1150_REG_FNGR_DET_THRES) ?			4 : \
+	((reg) == FPC1150_REG_FNGR_DET_CNTR) ?			4 : \
+								0)
 
 #define FPC1020_REG_ACCESS_DUMMY_BYTES(reg) (			\
 	((reg) == FPC102X_REG_FPC_STATUS) ?			1 : \
 	((reg) == FPC102X_REG_FPC_DEBUG) ?			1 : 0)
 
-#define FPC1020_REG_TO_ACTUAL(reg) ((reg))
+#define FPC1020_REG_TO_ACTUAL(reg) ( 				\
+	((reg) >= FPC1150_REG_OFFSET) ? ((reg) - FPC1150_REG_OFFSET) : (reg) )
 
 #endif /* __FPC1020_REGS_H */
 

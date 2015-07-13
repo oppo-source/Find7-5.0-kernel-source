@@ -49,6 +49,11 @@
 
 static struct v4l2_subdev *g_cci_subdev;
 
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to aviod ref_count chaos if cci_init and cci_release concurrency happened*/
+static struct mutex ref_count_lock;
+#endif
+
 static void msm_cci_set_clk_param(struct cci_device *cci_dev)
 {
 	struct msm_cci_clk_params_t *clk_params = NULL;
@@ -98,7 +103,7 @@ static void msm_cci_flush_queue(struct cci_device *cci_dev,
 	int32_t rc = 0;
 
 	msm_camera_io_w(1 << master, cci_dev->base + CCI_HALT_REQ_ADDR);
-	rc = wait_for_completion_interruptible_timeout(
+	rc = wait_for_completion_timeout(
 		&cci_dev->cci_master_info[master].reset_complete, CCI_TIMEOUT);
 	if (rc < 0) {
 		pr_err("%s:%d wait failed\n", __func__, __LINE__);
@@ -117,7 +122,7 @@ static void msm_cci_flush_queue(struct cci_device *cci_dev,
 				cci_dev->base + CCI_RESET_CMD_ADDR);
 
 		/* wait for reset done irq */
-		rc = wait_for_completion_interruptible_timeout(
+		rc = wait_for_completion_timeout(
 			&cci_dev->cci_master_info[master].reset_complete,
 			CCI_TIMEOUT);
 		if (rc <= 0)
@@ -158,10 +163,10 @@ static int32_t msm_cci_validate_queue(struct cci_device *cci_dev,
 		msm_camera_io_w(reg_val, cci_dev->base + CCI_QUEUE_START_ADDR);
 		CDBG("%s line %d wait_for_completion_interruptible\n",
 			__func__, __LINE__);
-		rc = wait_for_completion_interruptible_timeout(&cci_dev->
+		rc = wait_for_completion_timeout(&cci_dev->
 			cci_master_info[master].reset_complete, CCI_TIMEOUT);
 		if (rc <= 0) {
-			pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
+			pr_err("%s: wait_for_completion_timeout %d\n",
 				 __func__, __LINE__);
 			if (rc == 0)
 				rc = -ETIMEDOUT;
@@ -211,14 +216,23 @@ static int32_t msm_cci_data_queue(struct cci_device *cci_dev,
 		pr_err("%s failed line %d\n", __func__, __LINE__);
 		return -EINVAL;
 	}
-	/* assume total size within the max queue */
+
+	reg_addr = i2c_cmd->reg_addr;
 	while (cmd_size) {
-		CDBG("%s cmd_size %d addr 0x%x data 0x%x", __func__,
+		CDBG("%s cmd_size %d addr 0x%x data 0x%x\n", __func__,
 			cmd_size, i2c_cmd->reg_addr, i2c_cmd->reg_data);
 		delay = i2c_cmd->delay;
 		data[i++] = CCI_I2C_WRITE_CMD;
-		if (i2c_cmd->reg_addr)
+
+		/* in case of multiple command
+		* MSM_CCI_I2C_WRITE : address is not continuous, so update
+		*			address for a new packet.
+		* MSM_CCI_I2C_WRITE_SEQ : address is continuous, need to keep
+		*			the incremented address for a
+		*			new packet */
+		if (c_ctrl->cmd == MSM_CCI_I2C_WRITE)
 			reg_addr = i2c_cmd->reg_addr;
+
 		/* either byte or word addr */
 		if (i2c_msg->addr_type == MSM_CAMERA_I2C_BYTE_ADDR)
 			data[i++] = reg_addr;
@@ -242,7 +256,10 @@ static int32_t msm_cci_data_queue(struct cci_device *cci_dev,
 					break;
 			}
 			i2c_cmd++;
-		} while (--cmd_size && !i2c_cmd->reg_addr && (i <= 10));
+			--cmd_size;
+		} while ((c_ctrl->cmd == MSM_CCI_I2C_WRITE_SEQ) &&
+				(cmd_size > 0) && (i <= 10));
+
 		data[0] |= ((i-1) << 4);
 		len = ((i-1)/4) + 1;
 		rc = msm_cci_validate_queue(cci_dev, len, master, queue);
@@ -401,12 +418,12 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 
 	val = 1 << ((master * 2) + queue);
 	msm_camera_io_w(val, cci_dev->base + CCI_QUEUE_START_ADDR);
-	CDBG("%s:%d E wait_for_completion_interruptible_timeout\n", __func__,
+	CDBG("%s:%d E wait_for_completion_timeout\n", __func__,
 		__LINE__);
-	rc = wait_for_completion_interruptible_timeout(&cci_dev->
+	rc = wait_for_completion_timeout(&cci_dev->
 		cci_master_info[master].reset_complete, CCI_TIMEOUT);
 	if (rc <= 0) {
-		pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
+		pr_err("%s: wait_for_completion_timeout %d\n",
 			 __func__, __LINE__);
 		if (rc == 0)
 			rc = -ETIMEDOUT;
@@ -415,7 +432,7 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 	} else {
 		rc = 0;
 	}
-	CDBG("%s:%d E wait_for_completion_interruptible_timeout\n", __func__,
+	CDBG("%s:%d E wait_for_completion_timeout\n", __func__,
 		__LINE__);
 
 	read_words = msm_camera_io_r(cci_dev->base +
@@ -484,7 +501,13 @@ static int32_t msm_cci_i2c_read_bytes(struct v4l2_subdev *sd,
 		pr_err("%s:%d Invalid I2C master addr\n", __func__, __LINE__);
 		return -EINVAL;
 	}
-
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to avoid cci read or write if cci_dev is already released*/
+	if (cci_dev->cci_state == CCI_STATE_DISABLED){
+		pr_err("%s:%d cci state is DISABLED!\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+#endif
 	master = c_ctrl->cci_info->cci_i2c_master;
 	read_cfg = &c_ctrl->cfg.cci_i2c_read_cfg;
 	if ((!read_cfg->num_byte) || (read_cfg->num_byte > CCI_I2C_MAX_READ)) {
@@ -524,17 +547,20 @@ static int32_t msm_cci_i2c_write(struct v4l2_subdev *sd,
 	uint32_t val;
 	enum cci_i2c_master_t master;
 	enum cci_i2c_queue_t queue = QUEUE_0;
-	struct msm_camera_i2c_reg_setting *i2c_msg =
-		&c_ctrl->cfg.cci_i2c_write_cfg;
-	uint16_t cmd_size = i2c_msg->size;
-	struct msm_camera_i2c_reg_array *i2c_cmd = i2c_msg->reg_setting;
-	uint16_t i = 0;
 	cci_dev = v4l2_get_subdevdata(sd);
 	if (c_ctrl->cci_info->cci_i2c_master > MASTER_MAX
 			|| c_ctrl->cci_info->cci_i2c_master < 0) {
 		pr_err("%s:%d Invalid I2C master addr\n", __func__, __LINE__);
 		return -EINVAL;
 	}
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to avoid cci read or write if cci_dev is already released*/
+	if (cci_dev->cci_state == CCI_STATE_DISABLED){
+		pr_err("%s:%d cci state is DISABLED!\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+#endif
+
 	master = c_ctrl->cci_info->cci_i2c_master;
 	CDBG("%s master %d, queue %d\n", __func__, master, queue);
 	CDBG("%s set param sid 0x%x retries %d id_map %d\n", __func__,
@@ -613,16 +639,11 @@ static int32_t msm_cci_i2c_write(struct v4l2_subdev *sd,
 
 	CDBG("%s:%d E wait_for_completion_interruptible\n",
 		__func__, __LINE__);
-	rc = wait_for_completion_interruptible_timeout(&cci_dev->
+	rc = wait_for_completion_timeout(&cci_dev->
 		cci_master_info[master].reset_complete, CCI_TIMEOUT);
 	if (rc <= 0) {
-		pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
+		pr_err("%s: wait_for_completion_timeout %d\n",
 			 __func__, __LINE__);
-		for(i = 0; i < cmd_size; i++){
-			pr_err("%s: addr 0x%x data 0x%x, delay: %d",__func__,i2c_cmd->reg_addr,
-				i2c_cmd->reg_data,i2c_cmd->delay);
-			i2c_cmd++;
-		}
 		if (rc == 0)
 			rc = -ETIMEDOUT;
 		msm_cci_flush_queue(cci_dev, master);
@@ -641,7 +662,11 @@ ERROR:
 static int msm_cci_subdev_g_chip_ident(struct v4l2_subdev *sd,
 			struct v4l2_dbg_chip_ident *chip)
 {
-	BUG_ON(!chip);
+	if (!chip) {
+		pr_err("%s:%d: NULL pointer supplied for chip ident\n",
+			 __func__, __LINE__);
+		return -EINVAL;
+	}
 	chip->ident = V4L2_IDENT_CCI;
 	chip->revision = 0;
 	return 0;
@@ -685,7 +710,7 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 				msm_camera_io_w(CCI_M1_RESET_RMSK,
 					cci_dev->base + CCI_RESET_CMD_ADDR);
 			/* wait for reset done irq */
-			rc = wait_for_completion_interruptible_timeout(
+			rc = wait_for_completion_timeout(
 				&cci_dev->cci_master_info[master].
 				reset_complete,
 				CCI_TIMEOUT);
@@ -724,11 +749,11 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 	cci_dev->cci_master_info[MASTER_0].reset_pending = TRUE;
 	msm_camera_io_w(CCI_RESET_CMD_RMSK, cci_dev->base + CCI_RESET_CMD_ADDR);
 	msm_camera_io_w(0x1, cci_dev->base + CCI_RESET_CMD_ADDR);
-	rc = wait_for_completion_interruptible_timeout(
+	rc = wait_for_completion_timeout(
 		&cci_dev->cci_master_info[MASTER_0].reset_complete,
 		CCI_TIMEOUT);
 	if (rc <= 0) {
-		pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
+		pr_err("%s: wait_for_completion_timeout %d\n",
 			 __func__, __LINE__);
 		if (rc == 0)
 			rc = -ETIMEDOUT;
@@ -793,26 +818,63 @@ static int32_t msm_cci_release(struct v4l2_subdev *sd)
 static int32_t msm_cci_config(struct v4l2_subdev *sd,
 	struct msm_camera_cci_ctrl *cci_ctrl)
 {
-	int32_t rc = 0;
+	int32_t rc = 0, retry = 5;
 	CDBG("%s line %d cmd %d\n", __func__, __LINE__,
 		cci_ctrl->cmd);
-	switch (cci_ctrl->cmd) {
-	case MSM_CCI_INIT:
-		rc = msm_cci_init(sd, cci_ctrl);
-		break;
-	case MSM_CCI_RELEASE:
-		rc = msm_cci_release(sd);
-		break;
-	case MSM_CCI_I2C_READ:
-		rc = msm_cci_i2c_read_bytes(sd, cci_ctrl);
-		break;
-	case MSM_CCI_I2C_WRITE:
-		rc = msm_cci_i2c_write(sd, cci_ctrl);
-		break;
-	case MSM_CCI_GPIO_WRITE:
-		break;
-	default:
-		rc = -ENOIOCTLCMD;
+	while (retry--) {
+		switch (cci_ctrl->cmd) {
+		case MSM_CCI_INIT:
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to aviod ref_count chaos if cci_init and cci_release concurrency happened*/
+			mutex_lock(&ref_count_lock);
+			rc = msm_cci_init(sd, cci_ctrl);
+			mutex_unlock(&ref_count_lock);
+#else
+			rc = msm_cci_init(sd, cci_ctrl);
+#endif
+			break;
+		case MSM_CCI_RELEASE:
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to aviod ref_count chaos if cci_init and cci_release concurrency happened*/
+			mutex_lock(&ref_count_lock);
+			rc = msm_cci_release(sd);
+			mutex_unlock(&ref_count_lock);
+#else
+			rc = msm_cci_release(sd);
+#endif
+			break;
+		case MSM_CCI_I2C_READ:
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to aviod ref_count chaos if cci_init and cci_release concurrency happened*/
+			mutex_lock(&ref_count_lock);
+			rc = msm_cci_i2c_read_bytes(sd, cci_ctrl);
+			mutex_unlock(&ref_count_lock);
+#else
+			rc = msm_cci_i2c_read_bytes(sd, cci_ctrl);
+#endif
+			break;
+		case MSM_CCI_I2C_WRITE:
+	case MSM_CCI_I2C_WRITE_SEQ:
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to aviod ref_count chaos if cci_init and cci_release concurrency happened*/
+			mutex_lock(&ref_count_lock);
+			rc = msm_cci_i2c_write(sd, cci_ctrl);
+			mutex_unlock(&ref_count_lock);
+#else
+			rc = msm_cci_i2c_write(sd, cci_ctrl);
+#endif
+			break;
+		case MSM_CCI_GPIO_WRITE:
+			break;
+		default:
+			rc = -ENOIOCTLCMD;
+		}
+		if (rc >= 0) {
+			break;
+		} else {
+			pr_err("%s failed, retry is %d\n", __func__, retry);
+			usleep_range(10*1000, 20*1000);
+		}
 	}
 	CDBG("%s line %d rc %d\n", __func__, __LINE__, rc);
 	cci_ctrl->status = rc;
@@ -1118,7 +1180,7 @@ static int __devinit msm_cci_probe(struct platform_device *pdev)
 {
 	struct cci_device *new_cci_dev;
 	int rc = 0;
-	pr_err("%s: pdev %p device id = %d\n", __func__, pdev, pdev->id);
+	CDBG("%s: pdev %p device id = %d\n", __func__, pdev, pdev->id);
 	new_cci_dev = kzalloc(sizeof(struct cci_device), GFP_KERNEL);
 	if (!new_cci_dev) {
 		CDBG("%s: no enough memory\n", __func__);
@@ -1193,6 +1255,10 @@ static int __devinit msm_cci_probe(struct platform_device *pdev)
 	wake_lock_init(&new_cci_dev->cci_wakelock,WAKE_LOCK_SUSPEND,"msm_cci_wakelock");
 #endif
 /*Added by Jinshui.Liu@Camera 20140221 end*/
+#ifdef VENDOR_EDIT
+/*hufeng 2014-11-05 add to aviod ref_count chaos if cci_init and cci_release concurrency happened*/
+	mutex_init(&ref_count_lock);
+#endif
 	return 0;
 
 cci_release_mem:

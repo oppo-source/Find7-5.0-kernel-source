@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -579,6 +579,15 @@ struct adm_cmd_matrix_mute_v5 {
 	/* Clients must set this field to zero.*/
 } __packed;
 
+#define ASM_PARAM_ID_AAC_STEREO_MIX_COEFF_SELECTION_FLAG_V2 (0x00010DD8)
+
+struct asm_aac_stereo_mix_coeff_selection_param_v2 {
+	struct apr_hdr          hdr;
+	u32                     param_id;
+	u32                     param_size;
+	u32                     aac_stereo_mix_coeff_flag;
+} __packed;
+
 /* Allows a client to connect the desired stream to
  * the desired AFE port through the stream router
  *
@@ -757,7 +766,6 @@ struct adm_cmd_connect_afe_port_v5 {
 #define AFE_PORT_ID_SECONDARY_PCM_RX        0x100C
 #define AFE_PORT_ID_SECONDARY_PCM_TX        0x100D
 #define AFE_PORT_ID_MULTICHAN_HDMI_RX       0x100E
-#define AFE_PORT_ID_SECONDARY_MI2S_RX_VIBRA	0x1010
 #define  AFE_PORT_ID_RT_PROXY_PORT_001_RX   0x2000
 #define  AFE_PORT_ID_RT_PROXY_PORT_001_TX   0x2001
 #define AFE_PORT_ID_INTERNAL_BT_SCO_RX      0x3000
@@ -6585,6 +6593,44 @@ struct afe_spkr_prot_calib_get_resp {
 } __packed;
 
 
+/* OPPO 2014-09-26 John.Xu@Audio.Driver Add begin for tas2552 f0 fx test and impedance test */
+#ifdef CONFIG_OPPO_MSM_14021
+/* Structures for AFE communication */
+struct afe_custom_opalum_set_config_t {
+	struct apr_hdr					 hdr;
+	struct afe_port_cmd_set_param_v2 param;
+	struct afe_port_param_data_v2    data;
+} __packed;
+
+struct afe_custom_opalum_get_config_t {
+	struct afe_port_cmd_get_param_v2 param;
+	struct afe_port_param_data_v2 data;
+} __packed;
+
+struct opalum_process_enable_ctrl_t {
+	uint32_t	enable_flag; /**< Enable flag: 0 = disabled; nonzero = enabled. */
+};
+
+struct opalum_f0_calib_data_t {
+	int32_t f0;
+    int32_t ref_diff;
+};
+
+struct opalum_temp_calib_data_t {
+	int			acc;
+	int			count;
+};
+
+#define MODULE_ID_OPALUM_FB 0x00A1BF00
+#define MODULE_ID_OPALUM 0x00A1AF00
+#define PARAM_ID_OPALUM_GET_F0  0x00A1BF05
+#define PARAM_ID_OPALUM_GET_TEMPERATURE 0x00A1BF07
+#define PARAM_ID_OPALUM_SET_F0  0x00A1BF03
+#define PARAM_ID_OPALUM_SET_TEMPERATURE 0x00A1BF06
+
+#endif
+/* OPPO 2014-09-26 John.Xu@Audio.Driver Add end */
+
 /* SRS TRUMEDIA start */
 /* topology */
 #define SRS_TRUMEDIA_TOPOLOGY_ID			0x00010D90
@@ -6876,6 +6922,7 @@ struct afe_param_id_clip_bank_sel {
 #define Q6AFE_LPASS_IBIT_CLK_1_P024_MHZ		 0xFA000
 #define Q6AFE_LPASS_IBIT_CLK_768_KHZ		 0xBB800
 #define Q6AFE_LPASS_IBIT_CLK_512_KHZ		 0x7D000
+#define Q6AFE_LPASS_IBIT_CLK_256_KHZ		 0x3E800
 #define Q6AFE_LPASS_IBIT_CLK_DISABLE		     0x0
 
 /* Supported LPASS CLK sources */
@@ -7176,46 +7223,5 @@ struct afe_svc_cmd_set_clip_bank_selection {
 #define US_PROX_FORMAT_V2       0x0001272E
 #define US_RAW_SYNC_FORMAT      0x0001272F
 #define US_GES_SYNC_FORMAT      0x00012730
-
-#define AFE_MODULE_GROUP_DEVICE	0x00010254
-#define AFE_PARAM_ID_GROUP_DEVICE_CFG	0x00010255
-#define AFE_PARAM_ID_GROUP_DEVICE_ENABLE 0x00010256
-#define AFE_GROUP_DEVICE_ID_SECONDARY_MI2S_RX	0x1102
-
-/*  Payload of the #AFE_PARAM_ID_GROUP_DEVICE_CFG
- * parameter, which configures max of 8 AFE ports
- * into a group.
- * The fixed size of this structure is sixteen bytes.
- */
-struct afe_group_device_group_cfg {
-	u32 minor_version;
-	u16 group_id;
-	u16 num_channels;
-	u16 port_id[8];
-} __packed;
-
-
-/*  Payload of the #AFE_PARAM_ID_GROUP_DEVICE_ENABLE
- * parameter, which enables or
- * disables any module.
- * The fixed size of this structure is four bytes.
- */
-
-struct afe_group_device_enable {
-	u16 group_id;
-	/* valid value is AFE_GROUP_DEVICE_ID_SECONDARY_MI2S_RX */
-	u16 enable;
-/* Enables (1) or disables (0) the module. */
-} __packed;
-
-struct afe_port_group_create {
-	struct apr_hdr hdr;
-	struct afe_svc_cmd_set_param param;
-	struct afe_port_param_data_v2 pdata;
-	union {
-		struct afe_group_device_group_cfg group_cfg;
-		struct afe_group_device_enable group_enable;
-	} __packed data;
-} __packed;
 
 #endif /*_APR_AUDIO_V2_H_ */

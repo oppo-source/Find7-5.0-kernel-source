@@ -17,6 +17,7 @@
 //liuyan add end
 #endif
 #include "wcd9xxx-resmgr.h"
+#include "wcdcal-hwdep.h"
 
 #define WCD9XXX_CFILT_FAST_MODE 0x00
 #define WCD9XXX_CFILT_SLOW_MODE 0x40
@@ -305,6 +306,9 @@ struct wcd9xxx_mbhc_cb {
 	int (*enable_mb_source) (struct snd_soc_codec *, bool, bool);
 	void (*setup_int_rbias) (struct snd_soc_codec *, bool);
 	void (*pull_mb_to_vddio) (struct snd_soc_codec *, bool);
+	struct firmware_cal * (*get_hwdep_fw_cal) (struct snd_soc_codec *,
+				enum wcd_cal_type);
+
 };
 
 struct wcd9xxx_mbhc {
@@ -332,6 +336,7 @@ struct wcd9xxx_mbhc {
 	const struct firmware *mbhc_fw;
 
 	struct delayed_work mbhc_insert_dwork;
+	struct firmware_cal *mbhc_cal;
 
 	u8 current_plug;
 	struct work_struct correct_plug_swch;
@@ -393,6 +398,8 @@ struct wcd9xxx_mbhc {
 	struct dentry *debugfs_poke;
 	struct dentry *debugfs_mbhc;
 #endif
+
+	struct mutex mbhc_lock;
 };
 
 #define WCD9XXX_MBHC_CAL_SIZE(buttons, rload) ( \

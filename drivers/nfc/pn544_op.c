@@ -459,8 +459,8 @@ static int pn544_probe(struct i2c_client *client, const struct i2c_device_id *id
 		}
 
 		ret = clk_prepare_enable(p65T_clk);
-		printk("yuyi,clk_prepare_enable,return ret = %d",ret);
 		if (ret){
+			printk("yuyi,clk_prepare_disable,return ret = %d",ret);
 			p65T_clk = NULL;
 			clk_disable_unprepare(p65T_clk);
 		}

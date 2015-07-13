@@ -45,6 +45,11 @@
 
 #include "sdhci-pltfm.h"
 
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+extern int TF_CARD_STATUS;
+#endif /* VENDOR_EDIT */
+
 enum sdc_mpm_pin_state {
 	SDC_DAT1_DISABLE,
 	SDC_DAT1_ENABLE,
@@ -879,6 +884,14 @@ retry:
 		memset(data_buf, 0, size);
 		mmc_wait_for_req(mmc, &mrq);
 
+		/*
+		 * wait for 146 MCLK cycles for the card to send out the data
+		 * and thus move to TRANS state. As the MCLK would be minimum
+		 * 200MHz when tuning is performed, we need maximum 0.73us
+		 * delay. To be on safer side 1ms delay is given.
+		 */
+		if (cmd.error)
+			usleep_range(1000, 1200);
 		if (!cmd.error && !data.error &&
 			!memcmp(data_buf, tuning_block_pattern, size)) {
 			/* tuning is successful at this tuning point */
@@ -900,7 +913,9 @@ retry:
 		 * Finally set the selected phase in delay
 		 * line hw block.
 		 */
-         
+        /* OPPO 2014-11-28 added by songxh for Find7 used samsung emmc */
+#if defined (CONFIG_OPPO_MSM_FIND7WX) || defined (CONFIG_OPPO_DEVICE_FIND7)
+		printk("FIND7WX || FIND7\n");
         if(mmc_mid == 0x15)  //songxh modified phase value
 		{
 			if(phase != 6 && phase != 7)
@@ -917,14 +932,15 @@ retry:
 				}
 			}
 		}
+#endif
+/* OPPO 2014-11-28 added bu songxh for Find7 used samsung emmc */		
 		
 		rc = msm_config_cm_dll_phase(host, phase);
 		if (rc)
 			goto kfree;
 		msm_host->saved_tuning_phase = phase;
-		/*printk("%s: %s: finally setting the tuning phase to %d\n",
-				mmc_hostname(mmc), __func__, phase);*/
-		printk("phase=%d", phase);
+		pr_debug("%s: %s: finally setting the tuning phase to %d\n",
+				mmc_hostname(mmc), __func__, phase);
 	} else {
 		if (--tuning_seq_cnt)
 			goto retry;
@@ -1013,9 +1029,26 @@ static int sdhci_msm_setup_pad(struct sdhci_msm_pltfm_data *pdata, bool enable)
 static int sdhci_msm_setup_pins(struct sdhci_msm_pltfm_data *pdata, bool enable)
 {
 	int ret = 0;
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+	struct sdhci_msm_slot_reg_data *curr_slot;
+
+	curr_slot = pdata->vreg_data;
+	if (!curr_slot) {
+		pr_debug("%s: vreg info unavailable,assuming the slot is powered by always on domain\n",
+			 __func__);
+		goto out;
+	}
+#endif /* VENDOR_EDIT */
 
 	if (!pdata->pin_data || (pdata->pin_data->cfg_sts == enable))
 		return 0;
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+	if(TF_CARD_STATUS==0 && enable && (!curr_slot->vdd_data->is_always_on)){
+		return 0;
+	}
+#endif /* VENDOR_EDIT */
 	if (pdata->pin_data->is_gpio)
 		ret = sdhci_msm_setup_gpio(pdata, enable);
 	else
@@ -1024,7 +1057,12 @@ static int sdhci_msm_setup_pins(struct sdhci_msm_pltfm_data *pdata, bool enable)
 	if (!ret)
 		pdata->pin_data->cfg_sts = enable;
 
-	return ret;
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+out:
+		return ret;
+#endif /* VENDOR_EDIT */
+
 }
 
 static int sdhci_msm_dt_get_array(struct device *dev, const char *prop_name,
@@ -1858,6 +1896,21 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 			 __func__);
 		goto out;
 	}
+	
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+	if(TF_CARD_STATUS==0 && enable && (!curr_slot->vdd_data->is_always_on)){
+		return 0;
+	}
+#endif /* VENDOR_EDIT */
+
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
+//Zhilong.Zhang@OnlineRd.Driver, 2014/08/09, Add for enable TF ldo
+	if (get_pcb_version() >= HW_VERSION__31 && !curr_slot->vdd_data->is_always_on) {
+		if (!enable)
+			gpio_set_value(75, 0);
+	}
+#endif		
 
 	vreg_table[0] = curr_slot->vdd_data;
 	vreg_table[1] = curr_slot->vdd_io_data;
@@ -1872,6 +1925,15 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 				goto out;
 		}
 	}
+
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
+//Zhilong.Zhang@OnlineRd.Driver, 2014/08/09, Add for enable TF ldo
+	if (get_pcb_version() >= HW_VERSION__31 && !curr_slot->vdd_data->is_always_on) {
+		if (enable)
+			gpio_set_value(75, 1);
+	}
+#endif	
+	
 out:
 	return ret;
 }
@@ -1948,10 +2010,26 @@ static int sdhci_msm_set_vdd_io_vol(struct sdhci_msm_pltfm_data *pdata,
 	int ret = 0;
 	int set_level;
 	struct sdhci_msm_reg_data *vdd_io_reg;
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+	struct sdhci_msm_slot_reg_data *curr_slot;
+
+	curr_slot = pdata->vreg_data;
+	if (!curr_slot) {
+		pr_debug("%s: vreg info unavailable,assuming the slot is powered by always on domain\n",
+			 __func__);
+		goto out;
+	}
+#endif /* VENDOR_EDIT */
 
 	if (!pdata->vreg_data)
 		return ret;
-
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+	if((TF_CARD_STATUS==0) && (level== VDD_IO_HIGH) && (!curr_slot->vdd_data->is_always_on)){
+		return 0;
+	}
+#endif /* VENDOR_EDIT */
 	vdd_io_reg = pdata->vreg_data->vdd_io_data;
 	if (vdd_io_reg && vdd_io_reg->is_enabled) {
 		switch (level) {
@@ -1973,7 +2051,11 @@ static int sdhci_msm_set_vdd_io_vol(struct sdhci_msm_pltfm_data *pdata,
 		ret = sdhci_msm_vreg_set_voltage(vdd_io_reg, set_level,
 				set_level);
 	}
-	return ret;
+#ifdef VENDOR_EDIT
+//rongchun.Zhang@EXP.BasicDrv, 2014/12/12, Add for hot plug Tf card system crash
+out:
+			return ret;
+#endif /* VENDOR_EDIT */
 }
 
 /*
@@ -2774,7 +2856,7 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 		goto pltfm_free;
 	}
 
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 //Zhilong.Zhang@OnlineRd.Driver, 2014/08/09, Add for enable TF ldo
 	if (get_pcb_version() >= HW_VERSION__31) {
 		printk(KERN_INFO "enable TF ldo\n");
@@ -2782,7 +2864,7 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 		if (ret) {
 			printk(KERN_ERR "%s:gpio_tlmm_config(%#x)=%d\n", __func__, GPIO_CFG(75, 0, 1, 1, 0), ret);
 		}
-		gpio_set_value(75, 1);
+		gpio_set_value(75, 0);
 	}
 #endif	
 
@@ -2931,7 +3013,6 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 	host->quirks |= SDHCI_QUIRK_SINGLE_POWER_WRITE;
 	host->quirks |= SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN;
 	host->quirks2 |= SDHCI_QUIRK2_ALWAYS_USE_BASE_CLOCK;
-	host->quirks2 |= SDHCI_QUIRK2_IGNORE_CMDCRC_FOR_TUNING;
 	host->quirks2 |= SDHCI_QUIRK2_USE_MAX_DISCARD_SIZE;
 	host->quirks2 |= SDHCI_QUIRK2_IGNORE_DATATOUT_FOR_R1BCMD;
 	host->quirks2 |= SDHCI_QUIRK2_BROKEN_PRESET_VALUE;

@@ -35,6 +35,7 @@
 		qcom,mdss-ab-factor = <2 1>;		/* 2 times    */
 		qcom,mdss-ib-factor = <6 5>;		/* 1.2 times  */
 		qcom,mdss-clk-factor = <5 4>;		/* 1.25 times */
+		qcom,mdss-ib-factor-overlap = <7 4>;	/* 1.75 times  */
 
 		qcom,max-clk-rate = <320000000>;
 		qcom,mdss-pipe-vig-off = <0x00001200 0x00001600
@@ -103,11 +104,8 @@
 			cell-index = <0>;
 			compatible = "qcom,mdss-fb";
 			qcom,memory-reservation-type = "EBI1";
-/* OPPO 2014-02-12 yxq modified begin for Find7S */
-			/* qcom,memory-reservation-size = <0x800000>; */
-			qcom,memory-reservation-size = <0x2a30000>;
-			qcom,mdss-fb-split-find7s =<720 720>;
-/* OPPO 2014-02-12 yxq modified end */
+			//qcom,memory-reservation-size = <0x800000>;
+			qcom,memory-reservation-size = <0xFF0000>;
 			qcom,memblock-reserve = <0x03200000 0x01E00000>;
 		};
 
@@ -126,15 +124,25 @@
 		compatible = "qcom,mdss-dsi-ctrl";
 		label = "MDSS DSI CTRL->0";
 		cell-index = <0>;
-		reg = <0xfd922800 0x600>;
-		vdd-supply = <&pm8941_l22>;
+		reg = 	<0xfd922800 0x1f8>,
+			<0xfd922b00 0x2b0>,
+			<0xfdf30000 0x108>;
+		reg-names = "dsi_ctrl", "dsi_phy", "mmss_misc_phys";
+/*#ifndef VENDOR_EDIT*/
+/* liuyan@Onlinerd.driver, 2014/12/30  Add for do not need ldo22 */
+		/*vdd-supply = <&pm8941_l22>;*/
+/*#endif*/ /*CONFIG_VENDOR_EDIT*/
 		vddio-supply = <&pm8941_l12>;
 		vdda-supply = <&pm8941_l2>;
 		qcom,mdss-fb-map = <&mdss_fb0>;
 		qcom,mdss-mdp = <&mdss_mdp>;
-		qcom,platform-reset-gpio = <&pm8941_gpios 19 0>;
-		qcom,platform-enable-gpio = <&msmgpio 58 0>;
-		qcom,platform-te-gpio = <&msmgpio 12 0>;
+
+
+		
+		qcom,platform-reset-gpio = <&pm8941_gpios 19 0>; //LCD_REST
+		qcom,platform-enable-gpio = <&msmgpio 58 0>;//LCD-+ -5V EN
+		qcom,platform-te-gpio = <&msmgpio 12 0>;  //TE
+		
 		qcom,platform-strength-ctrl = [ff 06];
 		qcom,platform-bist-ctrl = [00 00 b1 ff 00 00];
 		qcom,platform-regulator-settings = [07 09 03 00 20 00 01];
@@ -143,7 +151,7 @@
 			00 00 00 00 0a 00 00 01 97
 			00 00 00 00 0f 00 00 01 97
 			00 c0 00 00 00 00 00 01 bb];
-		qcom,platform-supply-entry1 {
+		/*qcom,platform-supply-entry1 {
 				qcom,supply-name = "vdd";
 				qcom,supply-min-voltage = <3000000>;
 				qcom,supply-max-voltage = <3000000>;
@@ -153,7 +161,7 @@
 				qcom,supply-post-on-sleep = <20>;
 				qcom,supply-pre-off-sleep = <0>;
 				qcom,supply-post-off-sleep = <0>;
-		};
+		};*/
 		qcom,platform-supply-entry2 {
 				qcom,supply-name = "vddio";
 				qcom,supply-min-voltage = <1800000>;
@@ -182,8 +190,14 @@
 		compatible = "qcom,mdss-dsi-ctrl";
 		label = "MDSS DSI CTRL->1";
 		cell-index = <1>;
-		reg = <0xfd922e00 0x600>;
-		vdd-supply = <&pm8941_l22>;
+		reg = 	<0xfd922e00 0x1f8>,
+			<0xfd923100 0x2b0>,
+			<0xfdf30000 0x108>;
+		reg-names = "dsi_ctrl", "dsi_phy", "mmss_misc_phys";
+/*#ifndef VENDOR_EDIT*/
+/* liuyan@Onlinerd.driver, 2014/12/30  Add for do not need this ldo */
+		/*vdd-supply = <&pm8941_l22>;*/
+/*#endif*/ /*CONFIG_VENDOR_EDIT*/
 		vddio-supply = <&pm8941_l12>;
 		vdda-supply = <&pm8941_l2>;
 		qcom,mdss-fb-map = <&mdss_fb0>;
@@ -196,7 +210,7 @@
 			00 00 00 00 0a 00 00 01 97
 			00 00 00 00 0f 00 00 01 97
 			00 c0 00 00 00 00 00 01 bb];
-		qcom,platform-supply-entry1 {
+		/*qcom,platform-supply-entry1 {
 				qcom,supply-name = "vdd";
 				qcom,supply-min-voltage = <3000000>;
 				qcom,supply-max-voltage = <3000000>;
@@ -206,7 +220,7 @@
 				qcom,supply-post-on-sleep = <20>;
 				qcom,supply-pre-off-sleep = <0>;
 				qcom,supply-post-off-sleep = <0>;
-		};
+		};*/
 		qcom,platform-supply-entry2 {
 				qcom,supply-name = "vddio";
 				qcom,supply-min-voltage = <1800000>;

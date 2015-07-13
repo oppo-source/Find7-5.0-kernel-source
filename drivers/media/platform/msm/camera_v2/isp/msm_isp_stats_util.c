@@ -39,8 +39,9 @@ static int msm_isp_stats_cfg_ping_pong_address(struct vfe_device *vfe_dev,
 	rc = vfe_dev->buf_mgr->ops->get_buf(vfe_dev->buf_mgr,
 			vfe_dev->pdev->id, bufq_handle, &buf);
 	if (rc < 0) {
-		vfe_dev->error_info.stats_framedrop_count[
-			STATS_IDX(stream_info->stream_handle)]++;
+		uint8_t idx = STATS_IDX(stream_info->stream_handle);
+		if (idx < MSM_ISP_STATS_MAX)
+			vfe_dev->error_info.stats_framedrop_count[idx]++;
 		return rc;
 	}
 
@@ -366,7 +367,7 @@ static int msm_isp_stats_wait_for_cfg_done(struct vfe_device *vfe_dev)
 	int rc;
 	init_completion(&vfe_dev->stats_config_complete);
 	atomic_set(&vfe_dev->stats_data.stats_update, 2);
-	rc = wait_for_completion_interruptible_timeout(
+	rc = wait_for_completion_timeout(
 		&vfe_dev->stats_config_complete,
 		msecs_to_jiffies(VFE_MAX_CFG_TIMEOUT));
 	if (rc == 0) {
@@ -489,6 +490,9 @@ int msm_isp_cfg_stats_stream(struct vfe_device *vfe_dev, void *arg)
 {
 	int rc = 0;
 	struct msm_vfe_stats_stream_cfg_cmd *stream_cfg_cmd = arg;
+	struct msm_vfe_stats_shared_data *stats_data = &vfe_dev->stats_data;
+	stats_data->stats_burst_len =  stream_cfg_cmd->stats_burst_len;
+
 	if (vfe_dev->stats_data.num_active_stream == 0)
 		vfe_dev->hw_info->vfe_ops.stats_ops.cfg_ub(vfe_dev);
 

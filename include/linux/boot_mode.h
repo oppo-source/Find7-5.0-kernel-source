@@ -13,6 +13,7 @@ enum{
 	MSM_BOOT_MODE__RF,
 	MSM_BOOT_MODE__WLAN,
 	MSM_BOOT_MODE__MOS,
+	MSM_BOOT_MODE__SILENCE,
 };
 
 extern int get_boot_mode(void);

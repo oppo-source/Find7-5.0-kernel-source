@@ -1,5 +1,15 @@
 #Android makefile to build kernel as a part of Android Build
 PERL		= perl
+#ifndef VENDOR_EDIT
+#minglei.liu@oneplus.bsp, 2014/12/26, remove for sync with android 4.4
+#TODO NEED change to global variable for PROJECT_NAME
+#PROJECT_NAME := 14001
+# endif /*VENDOR_EDIT*/
+
+KERNEL_TARGET := $(strip $(INSTALLED_KERNEL_TARGET))
+ifeq ($(KERNEL_TARGET),)
+INSTALLED_KERNEL_TARGET := $(PRODUCT_OUT)/kernel
+endif
 
 ifeq ($(TARGET_PREBUILT_KERNEL),)
 

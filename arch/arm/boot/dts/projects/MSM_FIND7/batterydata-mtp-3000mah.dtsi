@@ -13,7 +13,7 @@
 qcom,mtp-3000mah {
 	qcom,fcc-mah = <3000>;
 	qcom,default-rbatt-mohm = <113>;
-	qcom,max-voltage-uv = <4352000>;
+	qcom,max-voltage-uv = <4320000>; /* yangfangbiao@oneplus.cn, 2015/01/06  Add for  sync with KK charge standard  */
 	qcom,rbatt-capacitive-mohm = <50>;
 	qcom,v-cutoff-uv = <3400000>;
 	qcom,chg-term-ua = <150000>;

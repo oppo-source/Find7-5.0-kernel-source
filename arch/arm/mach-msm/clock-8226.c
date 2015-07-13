@@ -3146,8 +3146,11 @@ static struct clk_lookup msm_clocks_8226[] = {
 	CLK_LOOKUP("bus_clk", gcc_mss_q6_bimc_axi_clk.c, "fc880000.qcom,mss"),
 	CLK_LOOKUP("iface_clk",   gcc_mss_cfg_ahb_clk.c, "fc880000.qcom,mss"),
 	CLK_LOOKUP("mem_clk",    gcc_boot_rom_ahb_clk.c, "fc880000.qcom,mss"),
+
 	/* NFC */
-	CLK_LOOKUP("ref_clk",            cxo_d1_a_pin.c, "2-000e"),
+	CLK_LOOKUP("ref_clk",            cxo_d1_a_pin.c, ""),
+	CLK_LOOKUP("ref_clk",            cxo_d1_pin.c, "2-000e"),
+
 	/* PIL-PRONTO */
 	CLK_LOOKUP("xo", cxo_pil_pronto_clk.c, "fb21b000.qcom,pronto"),
 
@@ -3383,6 +3386,8 @@ static struct clk_lookup msm_clocks_8226[] = {
 	CLK_LOOKUP("iface_clk", mdss_ahb_clk.c, "fd922800.qcom,mdss_dsi"),
 	CLK_LOOKUP("bus_clk", mdss_axi_clk.c, "fd922800.qcom,mdss_dsi"),
 	CLK_LOOKUP("mdp_core_clk", mdss_mdp_clk.c, "fd922800.qcom,mdss_dsi"),
+	CLK_LOOKUP("core_mmss_clk", mmss_misc_ahb_clk.c,
+		"fd922800.qcom,mdss_dsi"),
 
 	CLK_LOOKUP("core_clk", mdss_mdp_clk.c, "fd900000.qcom,mdss_mdp"),
 	CLK_LOOKUP("lut_clk", mdss_mdp_lut_clk.c, "fd900000.qcom,mdss_mdp"),
@@ -3405,13 +3410,13 @@ static struct clk_lookup msm_clocks_8226[] = {
 
 	/* MM sensor clocks */
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6f.qcom,camera"),
-	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "90.qcom,camera"),
+	CLK_LOOKUP("cam_src_clk", mclk1_clk_src.c, "90.qcom,camera"),
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6d.qcom,camera"),
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6a.qcom,camera"),
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "6c.qcom,camera"),
 	CLK_LOOKUP("cam_src_clk", mclk0_clk_src.c, "20.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_mclk0_clk.c, "6f.qcom,camera"),
-	CLK_LOOKUP("cam_clk", camss_mclk0_clk.c, "90.qcom,camera"),
+	CLK_LOOKUP("cam_clk", camss_mclk1_clk.c, "90.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_mclk0_clk.c, "6d.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_mclk0_clk.c, "6a.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_mclk0_clk.c, "6c.qcom,camera"),
@@ -3492,8 +3497,36 @@ static struct clk_lookup msm_clocks_8226[] = {
 					"fda08400.qcom,csid"),
 
 	/* ISPIF clocks */
+
 	CLK_LOOKUP("ispif_ahb_clk", camss_ispif_ahb_clk.c,
-		"fda0a000.qcom,ispif"),
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("camss_top_ahb_clk", camss_top_ahb_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi0_ahb_clk", camss_csi0_ahb_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi0_src_clk", csi0_clk_src.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi0_phy_clk", camss_csi0phy_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi0_clk", camss_csi0_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi0_pix_clk", camss_csi0pix_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi0_rdi_clk", camss_csi0rdi_clk.c,
+					"fda0a000.qcom,ispif"),
+
+	CLK_LOOKUP("csi1_ahb_clk", camss_csi1_ahb_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi1_src_clk", csi1_clk_src.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi1_phy_clk", camss_csi1phy_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi1_clk", camss_csi1_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi1_pix_clk", camss_csi1pix_clk.c,
+					"fda0a000.qcom,ispif"),
+	CLK_LOOKUP("csi1_rdi_clk", camss_csi1rdi_clk.c,
+					"fda0a000.qcom,ispif"),
 	CLK_LOOKUP("camss_vfe_vfe_clk", camss_vfe_vfe0_clk.c,
 		"fda0a000.qcom,ispif"),
 	CLK_LOOKUP("camss_csi_vfe_clk", camss_csi_vfe0_clk.c,

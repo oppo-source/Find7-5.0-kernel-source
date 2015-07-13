@@ -22,6 +22,8 @@ extern int fpc1020_capture_task(fpc1020_data_t *fpc1020);
 
 extern int fpc1020_capture_wait_finger_down(fpc1020_data_t *fpc1020);
 
+extern int fpc1020_capture_wait_finger_up(fpc1020_data_t *fpc1020);
+
 extern int fpc1020_capture_settings(fpc1020_data_t *fpc1020, int select);
 
 extern int fpc1020_capture_set_crop(fpc1020_data_t *fpc1020,
@@ -34,6 +36,10 @@ extern int fpc1020_capture_buffer(fpc1020_data_t *fpc1020,
 					u8 *data,
 					size_t offset,
 					size_t image_size_bytes);
+
+extern int fpc1020_capture_deferred_task(fpc1020_data_t *fpc1020);
+
+extern int fpc1020_capture_finger_detect_settings(fpc1020_data_t *fpc1020);
 
 #endif /* LINUX_SPI_FPC1020_CAPTURE_H */
 

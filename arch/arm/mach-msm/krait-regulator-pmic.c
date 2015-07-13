@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -58,7 +58,7 @@
 #define REG_GANG_CTL2		0xC1
 #define GANG_EN_BIT		BIT(7)
 
-#define REG_PWM_CL			0x60
+#define REG_PWM_CL		0x60
 #define REG_SEC_ACCESS		0xD0
 
 struct krait_vreg_pmic_chip {

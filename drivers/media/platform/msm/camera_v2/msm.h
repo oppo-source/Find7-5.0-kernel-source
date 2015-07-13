@@ -14,6 +14,7 @@
 #define _MSM_H
 
 #include <linux/version.h>
+#include <linux/completion.h>
 #include <linux/i2c.h>
 #include <linux/videodev2.h>
 #include <linux/pm_qos.h>
@@ -29,7 +30,7 @@
 #include <media/videobuf2-msm-mem.h>
 #include <media/msmb_camera.h>
 
-#define MSM_POST_EVT_TIMEOUT 12000
+#define MSM_POST_EVT_TIMEOUT 5000
 #define MSM_POST_EVT_NOTIMEOUT 0xFFFFFFFF
 
 struct msm_video_device {
@@ -70,7 +71,7 @@ struct msm_command {
 struct msm_command_ack {
 	struct list_head list;
 	struct msm_queue_head command_q;
-	wait_queue_head_t wait;
+	struct completion wait_complete;
 	int stream_id;
 };
 

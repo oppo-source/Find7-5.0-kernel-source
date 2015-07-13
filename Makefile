@@ -394,6 +394,14 @@ endif
 ifeq ($(OPPO_BUILD_TYPE),cu)
 KBUILD_CFLAGS += -DOPPO_CU_TEST
 endif
+#ifdef VENDOR_EDIT
+#Zhilong.Zhang@OnlineRd.Driver, 2014/03/07, add enviroment variant
+ifeq ($(OPPO_BUILD_TYPE),cts)
+KBUILD_CFLAGS +=   -DCONGIF_OPPO_CTS_OPTR
+KBUILD_CPPFLAGS += -DCONGIF_OPPO_CTS_OPTR
+CFLAGS_KERNEL +=   -DCONGIF_OPPO_CTS_OPTR
+CFLAGS_MODULE +=   -DCONGIF_OPPO_CTS_OPTR
+endif
 
 #endif /*VENDOR_EDIT*/
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)

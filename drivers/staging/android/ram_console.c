@@ -74,11 +74,36 @@ static int __devinit ram_console_probe(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef VENDOR_EDIT /*schedule ramconsole initailize on cpu 2 by huruihuan*/
+struct ram_console_optimize_data{
+	struct work_struct work;
+	struct platform_device *pdev;
+};
+static struct ram_console_optimize_data optimize_data;
+
+static void __devinit optimize_ramconsole_oppo_func(struct work_struct *work)
+{
+	struct platform_device *ramconsole_dev = optimize_data.pdev;
+	ram_console_probe(ramconsole_dev);
+}
+static int __devinit ram_console_probe_oppo(struct platform_device *pdev)
+{
+	INIT_WORK(&(optimize_data.work), optimize_ramconsole_oppo_func);
+	optimize_data.pdev = pdev;
+	schedule_work_on(2,&(optimize_data.work));
+	return 0;
+}
+#endif
+
 static struct platform_driver ram_console_driver = {
 	.driver		= {
 		.name	= "ram_console",
 	},
+#ifdef VENDOR_EDIT /*schedule ramconsole initailize on cpu 2 by huruihuan*/
+	.probe = ram_console_probe_oppo,
+#else
 	.probe = ram_console_probe,
+#endif
 };
 
 #ifdef VENDOR_EDIT

@@ -183,6 +183,7 @@ config SND_SOC_MSM8974
 	select SND_DYNAMIC_MINORS
 	select AUDIO_OCMEM
 	select DOLBY_DAP
+	select SND_HWDEP
 #ifdef VENDOR_EDIT
 #xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/13, add for TI smartPA TAS2552
 	select SND_SOC_TAS2552

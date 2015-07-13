@@ -1519,6 +1519,7 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	if (slim->dev.of_node) {
 		dev_info(&slim->dev, "Platform data from device tree\n");
 		pdata = wcd9xxx_populate_dt_pdata(&slim->dev);
+
 #ifdef VENDOR_EDIT
        //liuyan add hpmic 
        pdata->hpmic_regulator_count=0;
@@ -1737,7 +1738,6 @@ static int wcd9xxx_slim_device_down(struct slim_device *sldev)
 {
 	struct wcd9xxx *wcd9xxx = slim_get_devicedata(sldev);
 
-	dev_info(wcd9xxx->dev, "%s: device down\n", __func__);
 	if (!wcd9xxx) {
 		pr_err("%s: wcd9xxx is NULL\n", __func__);
 		return -EINVAL;

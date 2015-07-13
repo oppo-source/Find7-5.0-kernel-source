@@ -12,7 +12,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/sort.h>
 #include <linux/spi/spi.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
@@ -23,6 +22,12 @@
 #include <linux/kthread.h>
 #include <linux/poll.h>
 #include <linux/types.h>
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for Hw Config
+#include <linux/sort.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>
+#endif /* VENDOR_EDIT */
 
 #ifndef CONFIG_USE_OF
 #include <linux/spi/fpc1020.h>
@@ -32,8 +37,11 @@
 #include <linux/spi/fpc1020_capture.h>
 #include <linux/spi/fpc1020_regulator.h>
 #else
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for Hw Config
 #include <linux/of_gpio.h>
 #include <linux/of_device.h>
+#endif /* VENDOR_EDIT */
 #include <linux/of.h>
 #include "fpc1020.h"
 #include "fpc1020_common.h"
@@ -84,8 +92,6 @@ enum {
 /* -------------------------------------------------------------------- */
 #define FPC1020_CLASS_NAME                      "fpsensor"
 #define FPC1020_WORKER_THREAD_NAME		"fpc1020_worker"
-
-#define FPC1020_MAJOR				235
 
 
 /* -------------------------------------------------------------------- */
@@ -175,8 +181,9 @@ static int fpc1020_worker_goto_idle(fpc1020_data_t *fpc1020);
 
 static int fpc1020_worker_function(void *_fpc1020);
 
-static int fpc1020_start_input(fpc1020_data_t *fpc1020);
-
+#ifdef CONFIG_INPUT_FPC1020_NAV
+static int fpc1020_start_navigation(fpc1020_data_t *fpc1020);
+#endif
 
 /* -------------------------------------------------------------------- */
 /* External interface							*/
@@ -237,7 +244,7 @@ static const struct file_operations fpc1020_fops = {
 struct fpc1020_attribute fpc1020_attr_##_field =			\
 					FPC1020_ATTR(_grp, _field, (_mode))
 
-#define DEVFS_SETUP_MODE (S_IWUSR|S_IWGRP|S_IWOTH|S_IRUSR|S_IRGRP|S_IROTH)
+#define DEVFS_SETUP_MODE (S_IWUSR|S_IWGRP|S_IRUSR|S_IRGRP)
 
 static FPC1020_DEV_ATTR(setup, adc_gain,		DEVFS_SETUP_MODE);
 static FPC1020_DEV_ATTR(setup, adc_shift,		DEVFS_SETUP_MODE);
@@ -270,13 +277,14 @@ static const struct attribute_group fpc1020_setup_attr_group = {
 };
 
 #define DEVFS_DIAG_MODE_RO (S_IRUSR|S_IRGRP|S_IROTH)
-#define DEVFS_DIAG_MODE_RW (S_IWUSR|S_IWGRP|S_IWOTH|S_IRUSR|S_IRGRP|S_IROTH)
+#define DEVFS_DIAG_MODE_RW (S_IWUSR|S_IWGRP||S_IRUSR|S_IRGRP)
 
 static FPC1020_DEV_ATTR(diag, chip_id,		DEVFS_DIAG_MODE_RO);
 static FPC1020_DEV_ATTR(diag, selftest,		DEVFS_DIAG_MODE_RO);
 static FPC1020_DEV_ATTR(diag, spi_register,	DEVFS_DIAG_MODE_RW);
 static FPC1020_DEV_ATTR(diag, spi_regsize,	DEVFS_DIAG_MODE_RO);
 static FPC1020_DEV_ATTR(diag, spi_data ,	DEVFS_DIAG_MODE_RW);
+static FPC1020_DEV_ATTR(diag, last_capture_time,DEVFS_DIAG_MODE_RO);
 
 static struct attribute *fpc1020_diag_attrs[] = {
 	&fpc1020_attr_chip_id.attr.attr,
@@ -284,6 +292,7 @@ static struct attribute *fpc1020_diag_attrs[] = {
 	&fpc1020_attr_spi_register.attr.attr,
 	&fpc1020_attr_spi_regsize.attr.attr,
 	&fpc1020_attr_spi_data.attr.attr,
+	&fpc1020_attr_last_capture_time.attr.attr,
 	NULL
 };
 
@@ -341,6 +350,89 @@ static void __exit fpc1020_exit(void)
 	spi_unregister_driver(&fpc1020_driver);
 }
 
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-28 Add for navigation switch
+
+static int fpc1020_nav_switch_show(struct seq_file *seq, void *offset)
+{
+	fpc1020_data_t *fpc1020 = seq->private;
+
+ 	seq_printf(seq, "nav_switch:%d\n", fpc1020->nav.enabled);
+	return 0;
+}
+
+static int fpc1020_nav_switch_open(struct inode *inode, struct file *file)
+{
+	fpc1020_data_t *fpc1020 = PDE(inode)->data;;
+
+	return single_open(file, fpc1020_nav_switch_show, fpc1020);
+}
+
+
+
+static ssize_t fpc1020_nav_switch_write(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
+{
+	fpc1020_data_t *fpc1020 = (fpc1020_data_t*)PDE(file->f_path.dentry->d_inode)->data;
+	unsigned int nav_switch; 
+
+	if (!fpc1020) {
+		return -EFAULT;
+	}
+
+	if (copy_from_user(&nav_switch, buffer, sizeof(nav_switch))) 
+		return -EFAULT;
+
+	dev_dbg(&fpc1020->spi->dev, "nav_switch change to %d\n", nav_switch);
+
+	if(fpc1020->nav.enabled != nav_switch) {
+		fpc1020_input_enable(fpc1020, nav_switch);
+		if (nav_switch) {
+			fpc1020_start_navigation(fpc1020);
+		} else {
+			fpc1020_worker_goto_idle(fpc1020);
+		}
+	}
+
+	return count;
+}
+
+static const struct file_operations nav_switch_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= fpc1020_nav_switch_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+	.write		= fpc1020_nav_switch_write,
+};
+
+static ssize_t fpc1020_state_store(struct device *dev, struct device_attribute *attr, 
+		const char *buf, size_t count)
+{
+	char * tmp;
+	fpc1020_data_t *fpc1020;
+
+	tmp = strsep((char **) &buf, "\n");
+
+	fpc1020 = dev_get_drvdata(dev);
+
+	dev_dbg(&fpc1020->spi->dev, "%s go to %s\n", __func__, tmp);
+
+	if(!strcmp(tmp, "idle")) {
+		fpc1020_worker_goto_idle(fpc1020);
+	}
+
+	return count;
+}
+static ssize_t fpc1020_state_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	fpc1020_data_t *fpc1020;
+	fpc1020 = dev_get_drvdata(dev);
+	return sprintf(buf, "%d\n", fpc1020->worker.req_mode);
+}
+static struct device_attribute fpc1020_state_attr =
+    __ATTR(state, 0660, fpc1020_state_show, fpc1020_state_store);
+#endif /* VENDOR_EDIT */
 
 /* -------------------------------------------------------------------- */
 static int __devinit fpc1020_probe(struct spi_device *spi)
@@ -367,12 +459,34 @@ static int __devinit fpc1020_probe(struct spi_device *spi)
 	if (error)
 		goto err;
 
+#ifdef CONFIG_INPUT_FPC1020_NAV
+	fpc1020->prev_img_buf = kzalloc(NAV_FRAME_SIZE * sizeof(u8), GFP_KERNEL);
+
+	if (!fpc1020->prev_img_buf) {
+		dev_err(&fpc1020->spi->dev, "failed allocating image buffer memory.\n");
+		error = -ENOMEM;
+		goto err;
+	}
+
+	fpc1020->cur_img_buf = kzalloc(NAV_FRAME_SIZE * sizeof(u8), GFP_KERNEL);
+
+	if (!fpc1020->cur_img_buf) {
+		dev_err(&fpc1020->spi->dev, "failed allocating image buffer memory.\n");
+		error = -ENOMEM;
+		goto err;
+	}
+#endif
+
+
 	spi_set_drvdata(spi, fpc1020);
 	fpc1020->spi = spi;
 
 	fpc1020->reset_gpio = -EINVAL;
 	fpc1020->irq_gpio   = -EINVAL;
-//	fpc1020->cs_gpio    = -EINVAL;
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
+	fpc1020->cs_gpio    = -EINVAL;
+#endif /* VENDOR_EDIT */
 
 	fpc1020->irq        = -EINVAL;
 
@@ -450,15 +564,6 @@ static int __devinit fpc1020_probe(struct spi_device *spi)
 	if (error)
 		goto err;
 
-	error = register_chrdev_region(fpc1020->devno, 1, FPC1020_DEV_NAME);
-
-	if (error) {
-		dev_err(&fpc1020->spi->dev,
-		  "register_chrdev_region failed.\n");
-
-		goto err_sysfs;
-	}
-
 	cdev_init(&fpc1020->cdev, &fpc1020_fops);
 	fpc1020->cdev.owner = THIS_MODULE;
 
@@ -472,18 +577,37 @@ static int __devinit fpc1020_probe(struct spi_device *spi)
 	if (error)
 		goto err_cdev;
 
+	error = fpc1020_calc_finger_detect_threshold_min(fpc1020);
+	if (error < 0)
+		goto err_cdev;
+
+	error = fpc1020_set_finger_detect_threshold(fpc1020, error);
+	if (error < 0)
+		goto err_cdev;
+
+#ifdef CONFIG_INPUT_FPC1020_NAV
 	error = fpc1020_input_init(fpc1020);
 	if (error)
 		goto err_cdev;
 
-	error = fpc1020_start_input(fpc1020);
+	error = fpc1020_start_navigation(fpc1020);
 	if (error)
 		goto err_cdev;
-/*
+#else
 	error = fpc1020_sleep(fpc1020, true);
 	if (error)
 		goto err_cdev;
-*/
+#endif
+
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-10-16 Add for navigation switch
+	if (!proc_create_data("nav_switch", 0666, NULL, &nav_switch_proc_fops, fpc1020)) {
+		error = -ENOMEM;
+	}
+	//Lycan.Wang@Prd.BasicDrv, 2014-11-03 Add for go to idle 
+	dev_set_drvdata(fpc1020->device, fpc1020);
+	error =	sysfs_create_file(&fpc1020->device->kobj, &fpc1020_state_attr.attr);
+#endif /* VENDOR_EDIT */
 
 	up(&fpc1020->mutex);
 
@@ -495,7 +619,6 @@ err_cdev:
 err_chrdev:
 	unregister_chrdev_region(fpc1020->devno, 1);
 
-err_sysfs:
 	fpc1020_manage_sysfs(fpc1020, spi, false);
 
 err:
@@ -531,6 +654,10 @@ static int fpc1020_suspend(struct device *dev)
 	fpc1020_data_t *fpc1020 = dev_get_drvdata(dev);
 
 	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
+	
+	fpc1020_wake_up(fpc1020);
+
+	fpc1020_write_sensor_setup(fpc1020);
 
 	fpc1020_worker_goto_idle(fpc1020);
 
@@ -545,8 +672,10 @@ static int fpc1020_resume(struct device *dev)
 
 	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
 
-	if (fpc1020->input.enabled)
-		fpc1020_start_input(fpc1020);
+#ifdef CONFIG_INPUT_FPC1020_NAV
+	if(fpc1020->nav.enabled)
+		fpc1020_start_navigation(fpc1020);
+#endif
 
 	return 0;
 }
@@ -591,6 +720,14 @@ static ssize_t fpc1020_read(struct file *file, char *buff,
 	int error = 0;
 	u32 max_data;
 	u32 avail_data;
+
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-11-10 Add for workaround method for hal bug(repeat read 0 byte)
+    if (count <= 0) {
+		dev_dbg(&fpc1020->spi->dev, "%s : count = %d\n", __func__, count);
+		return -EINVAL;
+	}
+#endif /* VENDOR_EDIT */
 
 	if (down_interruptible(&fpc1020->mutex))
 		return -ERESTARTSYS;
@@ -673,12 +810,24 @@ static int fpc1020_release(struct inode *inode, struct file *file)
 	if (down_interruptible(&fpc1020->mutex))
 		return -ERESTARTSYS;
 
-	fpc1020_start_input(fpc1020);
-/*
+#ifdef CONFIG_INPUT_FPC1020_NAV
+	fpc1020_start_navigation(fpc1020);
+#else
 	fpc1020_worker_goto_idle(fpc1020);
 
 	fpc1020_sleep(fpc1020, true);
-*/
+#endif
+
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-11-19 Add for workaround method for fpc1020_read no return
+	if ((fpc1020->capture.state != FPC1020_CAPTURE_STATE_IDLE) &&
+			(fpc1020->capture.state != FPC1020_CAPTURE_STATE_COMPLETED) &&
+			(fpc1020->capture.state != FPC1020_CAPTURE_STATE_FAILED)) {
+		dev_err(&fpc1020->spi->dev,"%s capture state is %d\n", __func__, fpc1020->capture.state);
+		fpc1020->capture.state = FPC1020_CAPTURE_STATE_IDLE;
+	}
+#endif /* VENDOR_EDIT */
+
 	up(&fpc1020->mutex);
 
 	return status;
@@ -769,14 +918,24 @@ static int fpc1020_cleanup(fpc1020_data_t *fpc1020, struct spi_device *spidev)
 	if (gpio_is_valid(fpc1020->reset_gpio))
 		gpio_free(fpc1020->reset_gpio);
 
-//	if (gpio_is_valid(fpc1020->cs_gpio))
-//		gpio_free(fpc1020->cs_gpio);
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
+	if (gpio_is_valid(fpc1020->cs_gpio))
+		gpio_free(fpc1020->cs_gpio);
+#endif /* VENDOR_EDIT */
 
 	fpc1020_manage_huge_buffer(fpc1020, 0);
 
+#ifdef CONFIG_INPUT_FPC1020_NAV
 	fpc1020_input_destroy(fpc1020);
+#endif
 
 	fpc1020_regulator_release(fpc1020);
+
+#ifdef CONFIG_INPUT_FPC1020_NAV
+	kfree(fpc1020->prev_img_buf);
+	kfree(fpc1020->cur_img_buf);
+#endif
 
 	kfree(fpc1020);
 
@@ -835,32 +994,13 @@ static int __devinit fpc1020_reset_init(fpc1020_data_t *fpc1020,
 					struct fpc1020_platform_data *pdata)
 {
 	int error = 0;
-	int i = 0;
 
-	struct gpio fpc1020_all_gpio[] =
-	{
-		{pdata->irq_gpio, GPIO_CFG(pdata->irq_gpio, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "fpc_irq_gpio"},
-		{pdata->reset_gpio, GPIO_CFG(pdata->reset_gpio, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "fpc_reset_gpio"},
-	};
-
-	for(i = 0 ;i < sizeof(fpc1020_all_gpio)/sizeof(struct gpio);i ++) {
-		gpio_tlmm_config(fpc1020_all_gpio[i].flags, GPIO_CFG_ENABLE);
-		error = gpio_request(fpc1020_all_gpio[i].gpio,fpc1020_all_gpio[i].label);
-		if (error) {
-			dev_err(&fpc1020->spi->dev,
-				"gpio_request (reset) failed.\n");
-			return error;
-		}
-	}
-
-	fpc1020->reset_gpio = pdata->reset_gpio;
-	fpc1020->irq_gpio = pdata->irq_gpio;
-	fpc1020->soft_reset_enabled = false;
-/*
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Modify for Hw Config
 	if (gpio_is_valid(pdata->reset_gpio)) {
 
 		dev_info(&fpc1020->spi->dev,
-			"Assign HW reset -> GPIO%d\n", pdata->reset_gpio);
+				"Assign HW reset -> GPIO%d\n", pdata->reset_gpio);
 
 		fpc1020->soft_reset_enabled = false;
 
@@ -868,7 +1008,7 @@ static int __devinit fpc1020_reset_init(fpc1020_data_t *fpc1020,
 
 		if (error) {
 			dev_err(&fpc1020->spi->dev,
-				"gpio_request (reset) failed.\n");
+					"gpio_request (reset) failed.\n");
 			return error;
 		}
 
@@ -878,7 +1018,7 @@ static int __devinit fpc1020_reset_init(fpc1020_data_t *fpc1020,
 
 		if (error) {
 			dev_err(&fpc1020->spi->dev,
-			"gpio_direction_output(reset) failed.\n");
+					"gpio_direction_output(reset) failed.\n");
 			return error;
 		}
 	} else {
@@ -886,7 +1026,28 @@ static int __devinit fpc1020_reset_init(fpc1020_data_t *fpc1020,
 
 		fpc1020->soft_reset_enabled = true;
 	}
-*/
+
+#else /* VENDOR_EDIT */
+	struct gpio fpc1020_all_gpio[] =
+	{
+		{pdata->irq_gpio, GPIOF_DIR_IN, "fpc_irq_gpio"},
+		{pdata->reset_gpio, GPIOF_OUT_INIT_HIGH, "fpc_reset_gpio"},
+		{pdata->vdden_gpio, GPIOF_OUT_INIT_HIGH, "fpc_envdd_gpio"},
+	};
+
+	gpio_request_array(fpc1020_all_gpio, ARRAY_SIZE(fpc1020_all_gpio));
+
+	gpio_tlmm_config(GPIO_CFG(pdata->irq_gpio, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+	gpio_tlmm_config(GPIO_CFG(pdata->vdden_gpio, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+	gpio_tlmm_config(GPIO_CFG(pdata->reset_gpio, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+
+
+	fpc1020->reset_gpio = pdata->reset_gpio;
+	fpc1020->irq_gpio = pdata->irq_gpio;
+	fpc1020->vdden_gpio = pdata->vdden_gpio;
+	fpc1020->soft_reset_enabled = false;
+#endif /* VENDOR_EDIT */
+
 	return error;
 }
 
@@ -896,7 +1057,9 @@ static int __devinit fpc1020_irq_init(fpc1020_data_t *fpc1020,
 					struct fpc1020_platform_data *pdata)
 {
 	int error = 0;
-/*
+
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
 	if (gpio_is_valid(pdata->irq_gpio)) {
 
 		dev_info(&fpc1020->spi->dev,
@@ -924,8 +1087,10 @@ static int __devinit fpc1020_irq_init(fpc1020_data_t *fpc1020,
 	} else {
 		return -EINVAL;
 	}
-*/
+#endif /* VENDOR_EDIT */
+
 	fpc1020->irq = gpio_to_irq(fpc1020->irq_gpio);
+
 
 	if (fpc1020->irq < 0) {
 		dev_err(&fpc1020->spi->dev, "gpio_to_irq failed.\n");
@@ -968,16 +1133,18 @@ static int __devinit fpc1020_spi_setup(fpc1020_data_t *fpc1020,
 		goto out_err;
 	}
 
-/*	if (gpio_is_valid(pdata->cs_gpio)) {
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
+	if (gpio_is_valid(pdata->cs_gpio)) {
 
 		dev_info(&fpc1020->spi->dev,
-			"Assign SPI.CS -> GPIO%d\n",
-			pdata->cs_gpio);
+				"Assign SPI.CS -> GPIO%d\n",
+				pdata->cs_gpio);
 
 		error = gpio_request(pdata->cs_gpio, "fpc1020_cs");
 		if (error) {
 			dev_err(&fpc1020->spi->dev,
-				"gpio_request (cs) failed.\n");
+					"gpio_request (cs) failed.\n");
 
 			goto out_err;
 		}
@@ -987,12 +1154,13 @@ static int __devinit fpc1020_spi_setup(fpc1020_data_t *fpc1020,
 		error = gpio_direction_output(fpc1020->cs_gpio, 1);
 		if (error) {
 			dev_err(&fpc1020->spi->dev,
-				"gpio_direction_output(cs) failed.\n");
+					"gpio_direction_output(cs) failed.\n");
 			goto out_err;
 		}
 	} else {
 		error = -EINVAL;
-	}*/
+	}
+#endif /* VENDOR_EDIT */
 
 out_err:
 	return error;
@@ -1048,6 +1216,51 @@ static int __devexit fpc1020_worker_destroy(fpc1020_data_t *fpc1020)
 static int __devinit fpc1020_get_of_pdata(struct device *dev,
 					struct fpc1020_platform_data *pdata)
 {
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Modify for Hw Config
+	const struct device_node *node = dev->of_node;
+	/* required properties */
+	const void *irq_prop = of_get_property(node, "fpc,gpio_irq",   NULL);
+	const void *rst_prop = of_get_property(node, "fpc,gpio_reset", NULL);
+	const void *cs_prop  = of_get_property(node, "fpc,gpio_cs",    NULL);
+
+	/* optional properties */
+	const void *vddtx_prop = of_get_property(node, "fpc,vddtx_mv", NULL);
+	const void *boost_prop =
+			of_get_property(node, "fpc,txout_boost_enable", NULL);
+
+	if (node == NULL) {
+		dev_err(dev, "%s: Could not find OF device node\n", __func__);
+		goto of_err;
+	}
+
+	if (!irq_prop || !rst_prop || !cs_prop) {
+		dev_err(dev, "%s: Missing OF property\n", __func__);
+		goto of_err;
+	}
+
+	pdata->irq_gpio   = be32_to_cpup(irq_prop);
+	pdata->reset_gpio = be32_to_cpup(rst_prop);
+	pdata->cs_gpio    = be32_to_cpup(cs_prop);
+
+	pdata->external_supply_mv =
+			(vddtx_prop != NULL) ? be32_to_cpup(vddtx_prop) : 0;
+
+	pdata->txout_boost = (boost_prop != NULL) ? 1 : 0;
+
+	return 0;
+
+of_err:
+	pdata->reset_gpio = -EINVAL;
+	pdata->irq_gpio   = -EINVAL;
+	pdata->cs_gpio    = -EINVAL;
+
+	pdata->external_supply_mv = 0;
+	pdata->txout_boost = 0;
+
+	return -ENODEV;
+
+#else /* VENDOR_EDIT */
 	struct device_node *node = dev->of_node;
 
 	pdata->irq_gpio= of_get_named_gpio(node, "fpc,gpio_irq", 0);
@@ -1057,11 +1270,16 @@ static int __devinit fpc1020_get_of_pdata(struct device *dev,
 	pdata->reset_gpio= of_get_named_gpio(node, "fpc,gpio_reset", 0);
 	if ((!gpio_is_valid(pdata->reset_gpio)))
 		return -EINVAL;
-	
+
+	pdata->vdden_gpio = of_get_named_gpio(node, "fpc,gpio_envdd", 0);
+	if ((!gpio_is_valid(pdata->vdden_gpio)))
+		return -EINVAL;
+		
 	pdata->external_supply_mv = 1;
 	pdata->txout_boost = 0;
 
 	return 0;
+#endif /* VENDOR_EDIT */
 }
 
 #else
@@ -1070,7 +1288,10 @@ static int __devinit fpc1020_get_of_pdata(struct device *dev,
 {
 	pdata->reset_gpio = -EINVAL;
 	pdata->irq_gpio   = -EINVAL;
-//	pdata->cs_gpio    = -EINVAL;
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
+	pdata->cs_gpio    = -EINVAL;
+#endif /* VENDOR_EDIT */
 
 	pdata->external_supply_mv = 0;
 	pdata->txout_boost = 0;
@@ -1098,6 +1319,7 @@ static int __devinit fpc1020_create_class(fpc1020_data_t *fpc1020)
 }
 
 
+
 /* -------------------------------------------------------------------- */
 static int __devinit fpc1020_create_device(fpc1020_data_t *fpc1020)
 {
@@ -1105,7 +1327,30 @@ static int __devinit fpc1020_create_device(fpc1020_data_t *fpc1020)
 
 	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
 
-	fpc1020->devno = MKDEV(FPC1020_MAJOR, fpc1020_device_count++);
+	if (FPC1020_MAJOR > 0) {
+		fpc1020->devno = MKDEV(FPC1020_MAJOR, fpc1020_device_count++);
+
+		error = register_chrdev_region(fpc1020->devno,
+						1,
+						FPC1020_DEV_NAME);
+	} else {
+		error = alloc_chrdev_region(&fpc1020->devno,
+					fpc1020_device_count++,
+					1,
+					FPC1020_DEV_NAME);
+	}
+
+	if (error < 0) {
+		dev_err(&fpc1020->spi->dev,
+				"%s: FAILED %d.\n", __func__, error);
+		goto out;
+
+	} else {
+		dev_info(&fpc1020->spi->dev, "%s: major=%d, minor=%d\n",
+						__func__,
+						MAJOR(fpc1020->devno),
+						MINOR(fpc1020->devno));
+	}
 
 	fpc1020->device = device_create(fpc1020->class, NULL, fpc1020->devno,
 						NULL, "%s", FPC1020_DEV_NAME);
@@ -1115,6 +1360,7 @@ static int __devinit fpc1020_create_device(fpc1020_data_t *fpc1020)
 		error = PTR_ERR(fpc1020->device);
 	}
 
+out:
 	return error;
 }
 
@@ -1381,6 +1627,8 @@ static ssize_t fpc1020_show_attr_diag(struct device *dev,
 							u8_buffer,
 							sizeof(u8_buffer));
 		}
+	} else if (fpc_attr->offset == offsetof(fpc1020_diag_t, last_capture_time)) {
+		val = (int)fpc1020->diag.last_capture_time;
 	}
 
 	if (error >= 0 && !is_buffer) {
@@ -1442,6 +1690,8 @@ static ssize_t fpc1020_store_attr_diag(struct device *dev,
 }
 
 
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for Hw Config
 /* -------------------------------------------------------------------- */
 int compare(const void *a, const void *b)
 {
@@ -1467,7 +1717,7 @@ int compare(const void *a, const void *b)
 #define ICB_TYPE2_MEDIAN_BOUNDARY_VALUE_UPPER_LIMIT 80
 #define ICB_TYPE2_MEDIAN_BOUNDARY_VALUE_LOWER_LIMIT 0
 
-#define FPC102X_DEADPIXEL_THRESHOLD 60
+#define FPC102X_DEADPIXEL_THRESHOLD 11
 
 static int fpc1020_check_for_deadPixels(fpc1020_data_t *fpc1020, u8* ripPixels, bool bCB)
 {
@@ -1647,8 +1897,8 @@ static int CheckDeadPixelInDetectZone(fpc1020_data_t *fpc1020, int index)
 	
 	for (x = 0; x < 4; x++) {
 		for (y = 0; y < 3; y++) {
-			if (xpos >= xp[x] && xpos <= (xp[x] + 8) && 
-				ypos >= yp[y] && ypos <= (yp[y] + 8)) {
+			if (xpos >= xp[x] && xpos < (xp[x] + 8) && 
+				ypos >= yp[y] && ypos < (yp[y] + 8)) {
 				return error;
 			}
 		}
@@ -1746,18 +1996,21 @@ out:
 }
 
 
+#endif /* VENDOR_EDIT */
+
 /* -------------------------------------------------------------------- */
 static u8 fpc1020_selftest_short(fpc1020_data_t *fpc1020)
 {
 	const char *id_str = "selftest,";
 	int error = 0;
 
-	bool resume_input = false;
-	if(fpc1020->input.enabled) {
-		resume_input = true;
+#ifdef CONFIG_INPUT_FPC1020_NAV
+	bool resume_nav = false;
+	if(fpc1020->nav.enabled) {
+		resume_nav = true;
 		fpc1020_worker_goto_idle(fpc1020);
 	}
-
+#endif
 	fpc1020->diag.selftest = 0;
 
 	error = fpc1020_wake_up(fpc1020);
@@ -1838,12 +2091,15 @@ static u8 fpc1020_selftest_short(fpc1020_data_t *fpc1020)
 		goto out;
 	}
 
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for Hw Config
 	error = fpc1020_test_deadpixels(fpc1020);
 	if (error){
 		dev_err(&fpc1020->spi->dev,
 			"%s fpc1020_test_deadpixels failed.\n", id_str);
 		goto out;
 	}
+#endif /* VENDOR_EDIT */
 
 	error = 0;
 
@@ -1853,8 +2109,10 @@ out:
 	dev_info(&fpc1020->spi->dev, "%s %s\n", id_str,
 				(fpc1020->diag.selftest) ? "PASS" : "FAIL");
 
-	if (resume_input && fpc1020->diag.selftest)
-		fpc1020_start_input(fpc1020);
+#ifdef CONFIG_INPUT_FPC1020_NAV
+	if (resume_nav && fpc1020->diag.selftest)
+		fpc1020_start_navigation(fpc1020);
+#endif
 
 	return fpc1020->diag.selftest;
 };
@@ -1876,6 +2134,8 @@ static int fpc1020_start_capture(fpc1020_data_t *fpc1020)
 	case FPC1020_MODE_CHECKERBOARD_TEST_INV:
 	case FPC1020_MODE_BOARD_TEST_ONE:
 	case FPC1020_MODE_BOARD_TEST_ZERO:
+	case FPC1020_MODE_WAIT_FINGER_DOWN:
+	case FPC1020_MODE_WAIT_FINGER_UP:
 		break;
 
 	case FPC1020_MODE_IDLE:
@@ -1949,6 +2209,10 @@ static int fpc1020_worker_function(void *_fpc1020)
 	fpc1020_data_t *fpc1020 = _fpc1020;
 
 	while (!kthread_should_stop()) {
+#ifdef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-10-23 Add for workaround method for navigation invalid
+		int retry = 5;
+#endif /* VENDOR_EDIT */
 
 		up(&fpc1020->worker.sem_idle);
 
@@ -1963,10 +2227,23 @@ static int fpc1020_worker_function(void *_fpc1020)
 			fpc1020_capture_task(fpc1020);
 			break;
 
+#ifdef CONFIG_INPUT_FPC1020_NAV
 		case FPC1020_WORKER_INPUT_MODE:
-			fpc1020_input_enable(fpc1020, true);
-			fpc1020_input_task(fpc1020);
+			if (fpc1020_capture_deferred_task(fpc1020) != -EINTR) {
+#ifndef VENDOR_EDIT
+				//Lycan.Wang@Prd.BasicDrv, 2014-09-28 Remove for navigation switch
+				fpc1020_input_enable(fpc1020, true);
+				fpc1020_input_task(fpc1020);
+#else /* VENDOR_EDIT */
+				//Lycan.Wang Workaround method for navigation invalid
+				while ((fpc1020_input_task(fpc1020) == -EIO) && retry--) {
+					dev_dbg(&fpc1020->spi->dev, "fpc1020_input_task failed ! Try again !(%d)\n", retry);
+				}
+#endif /* VENDOR_EDIT */
+
+			}
 			break;
+#endif
 
 		case FPC1020_WORKER_IDLE_MODE:
 		case FPC1020_WORKER_EXIT:
@@ -2189,10 +2466,12 @@ static int fpc1020_spi_debug_hex_string_to_buffer(u8 *buffer,
 
 
 /* -------------------------------------------------------------------- */
-static int fpc1020_start_input(fpc1020_data_t *fpc1020)
+#ifdef CONFIG_INPUT_FPC1020_NAV
+static int fpc1020_start_navigation(fpc1020_data_t *fpc1020)
 {
 	return fpc1020_new_job(fpc1020, FPC1020_WORKER_INPUT_MODE);
 }
+#endif
 
 
 /* -------------------------------------------------------------------- */

@@ -26,11 +26,11 @@
 #include <sound/pcm.h>
 #include <sound/jack.h>
 #include <sound/q6afe-v2.h>
+#include <sound/q6core.h>
 #include <sound/pcm_params.h>
 #include <asm/mach-types.h>
 #include <mach/subsystem_notif.h>
 #include "qdsp6v2/msm-pcm-routing-v2.h"
-#include "qdsp6v2/q6core.h"
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9320.h"
 //OPPO 2013-12-13 liuyan add version recognition 
@@ -50,6 +50,7 @@
 #define BTSCO_RATE_16KHZ 16000
 
 static int slim0_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
+static int slim0_tx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 static int hdmi_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 
 #define SAMPLING_RATE_48KHZ 48000
@@ -83,7 +84,7 @@ static int msm8974_auxpcm_rate = 8000;
 
 static void *adsp_state_notifier;
 
-#define ADSP_STATE_READY_TIMEOUT_MS 3000
+#define ADSP_STATE_READY_TIMEOUT_MS 50
 //OPPO 2013-12-13 liuyan add  for dvt
 #ifdef VENDOR_EDIT 
 int pcb_version;
@@ -172,7 +173,6 @@ struct mi2s_clk {
 };
 static struct mi2s_clk sec_mi2s_clk;
 #endif /* CONFIG_OPPO_MSM_14021 */
-
 void *def_taiko_mbhc_cal(void);
 static int msm_snd_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 					bool dapm);
@@ -207,7 +207,6 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.use_vddio_meas = true,
 	.enable_anc_mic_detect = false,
 	.hw_jack_type = SIX_POLE_JACK,
-
 /* OPPO 2013-10-22 liuyan Modify end */
 #ifdef VENDOR_EDIT  //liuyan add 2013-4-18
        .hpmic_switch_gpio=0,
@@ -1419,7 +1418,7 @@ static int msm_slim_0_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 
 	pr_debug("%s()\n", __func__);
 	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
-				   slim0_rx_bit_format);
+				   slim0_tx_bit_format);
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_0_tx_ch;
 
@@ -1481,6 +1480,22 @@ static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
+#ifdef CONFIG_OPPO_MSM_14021
+/* xiaojun.lv@PhoneDpt.AudioDrv, 2014/08/07, add for 14021 sec i2s TX path use 24bit match with RX */
+static int msm_be_hw_params_fixup_sec_mi2s(struct snd_soc_pcm_runtime *rtd,
+				struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *rate = hw_param_interval(params,
+					SNDRV_PCM_HW_PARAM_RATE);
+
+	pr_err("%s()\n", __func__);
+	rate->min = rate->max = 48000;
+
+    param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+				   SNDRV_PCM_FORMAT_S24_LE);
+	return 0;
+}
+#endif
 static int msm_be_fm_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				struct snd_pcm_hw_params *params)
 {
@@ -2802,6 +2817,21 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA9,
 	},
+	{
+		.name = "VoWLAN",
+		.stream_name = "VoWLAN",
+		.cpu_dai_name   = "VoWLAN",
+		.platform_name  = "msm-pcm-voice",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.be_id = MSM_FRONTEND_DAI_VOWLAN,
+	},
 	/* Backend BT/FM DAI Links */
 	{
 		.name = LPASS_BE_INT_BT_SCO_RX,
@@ -2940,6 +2970,24 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.ops = &msm_sec_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
+#ifdef CONFIG_OPPO_MSM_14021
+/* xiaojun.lv@PhoneDpt.AudioDrv, 2014/07/26, add for MI2S feedback patch */	
+	{
+		.name = "SEC_MI2S Hostless",
+		.stream_name = "SEC_MI2S Hostless",
+		.cpu_dai_name = "SEC_MI2S_HOSTLESS",
+		.platform_name  = "msm-pcm-hostless",
+		.dynamic = 1,	
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},	
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		/* this dainlink has playback support */
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",	
+	},	
+#endif
 	/* Backend DAI Links */
 	{
 		.name = LPASS_BE_SLIMBUS_0_RX,
@@ -3116,7 +3164,7 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.codec_dai_name = "msm-stub-rx",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
-		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_be_hw_params_fixup_sec_mi2s,
 		.ops = &msm8974_mi2s_be_ops,
 	},
 	{
@@ -3128,7 +3176,7 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.codec_dai_name = "msm-stub-tx",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
-		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_be_hw_params_fixup_sec_mi2s,
 		.ops = &msm8974_mi2s_be_ops,
 	},
 #endif /* CONFIG_OPPO_MSM_14021 */	

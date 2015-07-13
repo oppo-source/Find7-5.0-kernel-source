@@ -695,7 +695,7 @@
 	mpp@a300 { /* MPP 4 */
 	};
 };
-/*
+
 &spi_epm {
 	epm-adc@0 {
 		compatible = "cy,epm-adc-cy8c5568lti-114";
@@ -714,7 +714,7 @@
 		qcom,channel-type = <0xf0000000>;
 	};
 };
-*/
+
 &dsi_tosh_720_vid {
        qcom,cont-splash-enabled;
 };

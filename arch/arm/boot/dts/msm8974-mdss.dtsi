@@ -35,6 +35,7 @@
 		qcom,mdss-ab-factor = <2 1>;		/* 2 times    */
 		qcom,mdss-ib-factor = <6 5>;		/* 1.2 times  */
 		qcom,mdss-clk-factor = <5 4>;		/* 1.25 times */
+		qcom,mdss-ib-factor-overlap = <7 4>;	/* 1.75 times  */
 
 		qcom,max-clk-rate = <320000000>;
 		qcom,mdss-pipe-vig-off = <0x00001200 0x00001600
@@ -103,11 +104,7 @@
 			cell-index = <0>;
 			compatible = "qcom,mdss-fb";
 			qcom,memory-reservation-type = "EBI1";
-/* OPPO 2014-02-12 yxq modified begin for Find7S */
-			/* qcom,memory-reservation-size = <0x800000>; */
-			qcom,memory-reservation-size = <0x2a30000>;
-			qcom,mdss-fb-split-find7s =<720 720>;
-/* OPPO 2014-02-12 yxq modified end */
+			qcom,memory-reservation-size = <0x800000>;
 			qcom,memblock-reserve = <0x03200000 0x01E00000>;
 		};
 
@@ -126,7 +123,10 @@
 		compatible = "qcom,mdss-dsi-ctrl";
 		label = "MDSS DSI CTRL->0";
 		cell-index = <0>;
-		reg = <0xfd922800 0x600>;
+		reg = 	<0xfd922800 0x1f8>,
+			<0xfd922b00 0x2b0>,
+			<0xfdf30000 0x108>;
+		reg-names = "dsi_ctrl", "dsi_phy", "mmss_misc_phys";
 		vdd-supply = <&pm8941_l22>;
 		vddio-supply = <&pm8941_l12>;
 		vdda-supply = <&pm8941_l2>;
@@ -182,7 +182,10 @@
 		compatible = "qcom,mdss-dsi-ctrl";
 		label = "MDSS DSI CTRL->1";
 		cell-index = <1>;
-		reg = <0xfd922e00 0x600>;
+		reg = 	<0xfd922e00 0x1f8>,
+			<0xfd923100 0x2b0>,
+			<0xfdf30000 0x108>;
+		reg-names = "dsi_ctrl", "dsi_phy", "mmss_misc_phys";
 		vdd-supply = <&pm8941_l22>;
 		vddio-supply = <&pm8941_l12>;
 		vdda-supply = <&pm8941_l2>;

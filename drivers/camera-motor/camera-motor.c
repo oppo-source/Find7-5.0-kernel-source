@@ -26,6 +26,7 @@
 #include <linux/gpio.h>
 #include <linux/miscdevice.h>
 #include <linux/spinlock.h>
+#include <linux/wakelock.h>
 #include <linux/regulator/consumer.h>
 #include <linux/pcb_version.h>
 #include <mach/device_info.h>
@@ -43,18 +44,12 @@
 
 #define  ANGEL_PER_PULSE 18 
 #define  GEAR_RATIO_10   467   //46.7
+#define CAMERA_DEBUG 1
 
 
 #define CAMERAMOTOR_POWER_GPIO 67   //camera motor BOOST_EN
 
 #define CAMERAMOTOR_CTRL	GPIO_CFG(CAMERAMOTOR_POWER_GPIO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
-
-/*enum CAMERA_MOTOR_SPEED {
-	CAMERA_MOTOR_SPEED_LOW = 0,
-	CAMERA_MOTOR_SPEED_NORMAL,
-	CAMERA_MOTOR_SPEED_HIGH,
-	CAMERA_MOTOR_SPEED_LOWHIGH,
-};*/
 
 enum CAMERA_MOTOR_SPEED {
 	CAMERA_MOTOR_SPEED1 = 0, //High
@@ -150,10 +145,6 @@ struct qpnp_lpg_chip {
 
 struct CameraMotor_platform_data 
 {
-//	unsigned int irq_gpio;
-//	unsigned int firm_gpio;
-//	unsigned int clk_req_gpio;
-
 	int         md_mode;    /*data*/   
 	int         md_speed;    
 	int         md_dir;    // 1:forward   0:reverse    
@@ -176,7 +167,6 @@ struct CameraMotor_dev
 {
 	struct device *dev;
 	struct miscdevice	motor_device;
-	unsigned int ven_gpio;	
 	unsigned int md_vref_gpio;
 	unsigned int md_sleep_gpio;
 	unsigned int md_dir_gpio;
@@ -189,6 +179,11 @@ struct CameraMotor_dev
 };
 
 struct CameraMotor_dev  *motor_devdata = NULL;
+struct qpnp_pin_cfg param;  // zhangqiang add  for motor blocking 
+static void CameraMotor_running(struct work_struct *work);
+static struct wake_lock motor_suspend_wake_lock;
+void start_motor(void);
+void stop_motor(void);
 
 struct manufacture_info camaramotor_info = {
 	.version = "8834",
@@ -203,7 +198,8 @@ static ssize_t direction_store(struct device *pdev, struct device_attribute *att
 
 	if(motor_devdata->data.pwm_enable)
 		return ret;
-	printk("%s: songxh motor_devdata->data.md_dir = %d\n",__func__, motor_devdata->data.md_dir);
+
+//	printk("%s: songxh motor_devdata->data.md_dir = %d\n",__func__, motor_devdata->data.md_dir);
 	ret = strict_strtoul(buf, 10, &direction);
 		
 	if (!ret) 
@@ -232,7 +228,7 @@ static ssize_t speed_store(struct device *pdev, struct device_attribute *attr,
 
 	if(motor_devdata->data.pwm_enable)
 		return ret;
-	printk("%s: songxh motor_devdata->data.md_speed = %d\n",__func__, motor_devdata->data.md_speed);
+	printk("speed = %d\n", motor_devdata->data.md_speed);
 	ret = strict_strtoul(buff, 10, &speed);
 		
 	if (!ret) 
@@ -240,6 +236,9 @@ static ssize_t speed_store(struct device *pdev, struct device_attribute *attr,
 		ret = size;
 		motor_devdata->data.md_speed = speed;
 	}
+    
+	printk("speed:%d\n", motor_devdata->data.md_speed);
+    
 	return ret;
 }
 
@@ -262,7 +261,7 @@ static ssize_t mode_store(struct device *pdev, struct device_attribute *attr,
 
 	if(motor_devdata->data.pwm_enable)
 		return ret;
-	printk("%s: songxh mdmode = %d\n",__func__, motor_devdata->data.md_mode);
+//	printk("%s: songxh mdmode = %d\n",__func__, motor_devdata->data.md_mode);
 	ret = strict_strtoul(buff, 10, &mdmode);
 	
 	if (!ret) 
@@ -299,7 +298,7 @@ static ssize_t mode_store(struct device *pdev, struct device_attribute *attr,
 			break;
 		}			
 		motor_devdata->data.md_mode= mode;
-		printk("%s: songxh mdmode = %d\n",__func__, mode);
+		printk("mdmode = %d\n", mode);
 	}
 	return ret;
 }
@@ -322,13 +321,17 @@ static ssize_t angel_store(struct device *pdev, struct device_attribute *attr,
 
 	if(motor_devdata->data.pwm_enable)
 		return ret;
-	printk("%s: songxh md_angle = %lu\n",__func__, motor_devdata->data.md_angle);
+
 	ret = strict_strtoul(buf, 10, &angel);
 	if (!ret) 
 	{		
 		ret = size;
-		motor_devdata->data.md_angle =  angel;
+		if (angel <= 0 || angel > 240)
+			motor_devdata->data.md_angle =  1;
+		else
+			motor_devdata->data.md_angle =  angel;
 	}
+	printk("angle:%lu\n", motor_devdata->data.md_angle);	
 	return ret;
 }
 
@@ -363,13 +366,51 @@ static ssize_t pwm_enable_store(struct device *pdev, struct device_attribute *at
 		{
 			motor_devdata->data.pwm_enable = 1;
 		}
-		printk(KERN_ERR "%s: songxh motor_devdata->data.pwm_enable  = %d\n",__func__, motor_devdata->data.pwm_enable );
+
+        printk("pwm_enable %d\n", motor_devdata->data.pwm_enable);
+        
 		mutex_unlock(&motor_devdata->data.lock);
 		schedule_work(&motor_devdata->data.work);	
 	}
 	return ret;
 }
 
+
+static ssize_t pwm_change_speed_store(struct device *pdev, struct device_attribute *attr,
+			    const char *buff, size_t size)
+{
+	ssize_t ret = -EINVAL;	
+	unsigned long speed = 0;
+
+	ret = strict_strtoul(buff, 10, &speed);
+	if (!ret) 
+	{
+		ret = size;
+		mutex_lock(&motor_devdata->data.lock);
+		hrtimer_cancel(&motor_devdata->timer);
+
+        motor_devdata->data.md_speed = speed;
+        
+        printk("pwm_change_speed : %d\n", motor_devdata->data.md_speed);
+        
+        stop_motor();
+
+        start_motor();
+      
+		mutex_unlock(&motor_devdata->data.lock);
+	}
+	return ret;
+}
+
+static ssize_t  pwm_change_speed_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	ssize_t size = -EINVAL;
+
+	if (motor_devdata->data.md_speed >= 0)
+		size = snprintf(buf, PAGE_SIZE, "%d\n", motor_devdata->data.md_speed);
+	return size;
+}
 
 static ssize_t  pwm_enable_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
@@ -381,16 +422,44 @@ static ssize_t  pwm_enable_show(struct device *dev,
 	return size;
 }
 
+// zhangqiang add  for motor blocking 
+extern int start_motor_flag ;
+extern int direction_for_hall;
+
+void start_motor(void)
+{
+    motor_devdata->data.pwm_enable = 1; 
+    
+    CameraMotor_running(&motor_devdata->data.work);
+}
+
+void stop_motor(void)
+{
+    motor_devdata->data.pwm_enable = 0;
+
+    CameraMotor_running(&motor_devdata->data.work);
+
+    printk("stop motor , dhall detect! \n");
+}
+
+void motor_speed_set(int speed)
+{
+    motor_devdata->data.md_speed = speed;
+    printk("%s = %d! \n", __func__, speed);
+}
+
 static void CameraMotor_running(struct work_struct *work)
 {
 	unsigned long duty_ns, intsecond,nsecond;
 	long long value, period_ns;
 	int mdmode = 0;
-	struct qpnp_pin_cfg param;
-	printk(KERN_ERR "%s: songxh motor_devdata->data.pwm_enable  = %d\n",__func__, motor_devdata->data.pwm_enable );
+    
+	printk("%s enable  = %d, dir = %d\n", __func__,motor_devdata->data.pwm_enable,  motor_devdata->data.md_dir);
+
+    direction_for_hall = motor_devdata->data.md_dir;    // zhangqiang add  for motor blocking 
+    
 	if(motor_devdata->data.pwm_enable)
 	{
-		//gpio_set_value(motor_devdata->ven_gpio, 1);
 		gpio_set_value(CAMERAMOTOR_POWER_GPIO, 1);
 		gpio_set_value(motor_devdata->md_sleep_gpio, 1);
 		gpio_set_value(motor_devdata->md_dir_gpio, motor_devdata->data.md_dir);
@@ -526,7 +595,6 @@ static void CameraMotor_running(struct work_struct *work)
 		}
 
 		motor_devdata->data.pwm_count = motor_devdata->data.md_angle*mdmode*GEAR_RATIO_10/(10*ANGEL_PER_PULSE);
-		printk(KERN_ERR "%s: songxh start the camera motor pwm_count = %d\n",__func__, motor_devdata->data.pwm_count);
 
 		switch(motor_devdata->data.md_speed)
 		{
@@ -586,11 +654,11 @@ static void CameraMotor_running(struct work_struct *work)
 				switch(mdmode)
 				{
 					case 32:
-						period_ns = 500*1000;// 1.9KHZ speed 5
+						period_ns = 520*1000;// 1.9KHZ speed 5
 					break;
 					
 					default:
-						period_ns = 500*1000;// 1.9KHZ speed 5
+						period_ns = 520*1000;// 1.9KHZ speed 5
 					break;
 				}
 			break;
@@ -662,7 +730,6 @@ static void CameraMotor_running(struct work_struct *work)
 			break;
 		}
 		value = motor_devdata->data.pwm_count * period_ns;
-		printk(KERN_ERR "%s: songxh will set the camera motor hrtimer timertime=%llu,pwm_count =%d,period_ns=%llu\n",__func__, value,motor_devdata->data.pwm_count,period_ns);
 		duty_ns =  (unsigned long)(period_ns/2);
 	
 		motor_devdata->data.pwm->pwm_config.pwm_duty = duty_ns;
@@ -671,21 +738,27 @@ static void CameraMotor_running(struct work_struct *work)
 		pwm_config(motor_devdata->data.pwm, duty_ns, period_ns);
 		pwm_enable(motor_devdata->data.pwm);
 
+        printk("motor time value = %llu.\n", value);
+        
 		nsecond = do_div(value, 1000000000);
 		intsecond = (unsigned long) value;
 
 		hrtimer_start(&motor_devdata->timer,
 			ktime_set(intsecond /*s*/, nsecond /*ns*/ ),
 			  		HRTIMER_MODE_REL);
-		
-		printk(KERN_ERR "%s: songxh start the camera motor hrtimer int timertime=%lu,  timertime2=%lu\n",__func__, intsecond, nsecond);
+
+        start_motor_flag = 1; // zhangqiang add  for motor blocking 
+        wake_lock_timeout(&motor_suspend_wake_lock, 3 * HZ);        
 	}
 	else
 	{
 		hrtimer_cancel(&motor_devdata->timer);
-		
 		pwm_disable(motor_devdata->data.pwm);
-		//gpio_set_value(motor_devdata->ven_gpio, 0);
+        
+        if(motor_devdata->data.md_speed > 5)
+    		usleep(15*1000);
+        
+		printk("hrtimer_cancel\n");
 
 		gpio_set_value(motor_devdata->md_vref_gpio, 0);
 		gpio_set_value(motor_devdata->md_sleep_gpio, 0);
@@ -709,7 +782,8 @@ static void CameraMotor_running(struct work_struct *work)
 		param.cs_out = 0;		
 		qpnp_pin_config(motor_devdata->md_vref_gpio, &param);
 
-		printk(KERN_ERR "%s: songxh canceled the camera motor hrtimer\n",__func__);	
+        start_motor_flag = 0; // zhangqiang add  for motor blocking 
+        wake_unlock(&motor_suspend_wake_lock);
 	}
 }
 
@@ -754,6 +828,14 @@ static struct device_attribute dev_attr_pwm_enable = {
 	.show = &pwm_enable_show
 };
 
+static struct device_attribute dev_attr_change_speed_pwm = {
+	.attr = {
+		 .name = "pwm_change_speed",
+		 .mode = S_IRUGO | S_IWUSR},
+	.store = &pwm_change_speed_store,
+	.show = &pwm_change_speed_show,	
+};
+
 static const struct file_operations motor_fops = {
 	.owner = THIS_MODULE,
 };
@@ -769,10 +851,6 @@ static int cameramotor_dt(struct device *dev, struct CameraMotor_platform_data *
 	struct device_node *np = dev->of_node;	
 	int rc;
 	dev_err(dev, "songxh read device tree\n");
-
-/*	motor_devdata->ven_gpio = of_get_named_gpio(np, "cameramotor,gpio", 0);
-	if (!gpio_is_valid(motor_devdata->ven_gpio))
-		pr_err("%s:%d, md-booten-gpio gpio not specified\n", __func__, __LINE__);*/
 
 	rc = gpio_tlmm_config(CAMERAMOTOR_CTRL, GPIO_CFG_ENABLE);
 	if (rc) {
@@ -805,11 +883,6 @@ static int cameramotor_dt(struct device *dev, struct CameraMotor_platform_data *
 	if (!gpio_is_valid(motor_devdata->md_step_gpio))
 		pr_err("%s:%d, md_step_gpio gpio not specified\n",	__func__, __LINE__);
 
-//	rc = gpio_request(motor_devdata->ven_gpio, "md-booten-gpio");
-//	if (rc) 
-//		pr_err("request md-booten-gpio gpio failed, rc=%d\n",rc);
-	gpio_set_value(motor_devdata->ven_gpio, 0);
-	
 	rc = gpio_request(motor_devdata->md_vref_gpio, "md_vref-gpio");
 	if (rc) 
 		pr_err("request md_vref-gpio gpio failed, rc=%d\n",rc);
@@ -839,13 +912,7 @@ static int cameramotor_dt(struct device *dev, struct CameraMotor_platform_data *
 	if (rc) 
 		pr_err("request md_step_gpio gpio failed, rc=%d\n",rc);
 	gpio_set_value(motor_devdata->md_step_gpio, 0);
-	
-/*	rc = gpio_request(motor_devdata->md-booten-gpio, "md-booten-gpio");
-	if (rc) 
-		pr_err("request md_booten_gpio gpio failed, rc=%d\n",rc);
-	gpio_set_value(motor_devdata->md-booten-gpio, 0);
-	INIT_DELAYED_WORK(&md_work, handle_md_worker);
-	schedule_delayed_work(&md_work, 2*HZ);*/
+
 	return 0;
 }
 
@@ -902,6 +969,7 @@ static int CameraMotor_probe(struct i2c_client *client, const struct i2c_device_
 	device_create_file(dev, &dev_attr_speed);
 	device_create_file(dev, &dev_attr_angel);
 	device_create_file(dev, &dev_attr_pwm_enable);  
+	device_create_file(dev, &dev_attr_change_speed_pwm);  
 	device_create_file(dev, &dev_attr_mode);
 
 	if (client->dev.of_node) {
@@ -933,7 +1001,8 @@ static int CameraMotor_probe(struct i2c_client *client, const struct i2c_device_
 	CameraMotor_init_timer(motor_devdata);
 
 	INIT_WORK(&motor_devdata->data.work, CameraMotor_running);
-	
+
+	wake_lock_init(&motor_suspend_wake_lock, WAKE_LOCK_SUSPEND, "motor_suspend_lock");
 	
 	printk("songxh CameraMotor_probe end \n");
 

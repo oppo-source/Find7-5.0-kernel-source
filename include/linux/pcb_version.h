@@ -54,7 +54,9 @@ enum {
 	RF_VERSION__67,
 	RF_VERSION__76,
 	RF_VERSION__77,
+	RF_VERSION__87,
 	RF_VERSION__88,
+	RF_VERSION__89,
 	RF_VERSION__98,
 	RF_VERSION__99,
 /* wenxian.zhen@Onlinerd.Driver, 2014/06/18  Add begin for N3  PCB RF version */

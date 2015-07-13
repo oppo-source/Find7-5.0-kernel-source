@@ -20,3 +20,8 @@
 /include/ "dsi-panel-jdi-dualmipi0-cmd.dtsi"
 /include/ "dsi-panel-jdi-dualmipi1-cmd.dtsi"
 /include/ "dsi-panel-jdi-1440p-video.dtsi"
+/*#ifdef VENDOR_EDIT*/
+/* liuyan@Onlinerd.driver, 2014/09/15  Add for turly panel */
+/include/ "dsi-panel-truly-1080p-cmd.dtsi"
+/include/ "dsi-panel-sharp-1080p-cmd.dtsi"
+/*#endif *//*CONFIG_VENDOR_EDIT*/

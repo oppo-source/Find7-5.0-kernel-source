@@ -1032,7 +1032,10 @@ static int SN3193_probe(struct i2c_client *client, const struct i2c_device_id *i
 	//client->dev.platform_data = &rgb_pdata;
 
 	SN3193_power();
+#ifndef VENDOR_EDIT 
+//Zhilong.Zhang@OnlineRd.Driver, 2014/11/14, Removed for optimize boot time
 	msleep(100);
+#endif
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		pr_err("%s : need I2C_FUNC_I2C\n", __func__);
 		return  -ENODEV;

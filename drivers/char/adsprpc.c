@@ -197,6 +197,11 @@ struct file_data {
 	spinlock_t hlock;
 	struct hlist_head hlst;
 	uint32_t mode;
+#ifdef VENDOR_EDIT	
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/18, add patch for bug 515596, enter camera, 
+ * adsp crashed. case id 01758302 */
+	int tgid;
+#endif
 };
 
 struct fastrpc_device {
@@ -466,11 +471,15 @@ static void context_list_dtor(struct fastrpc_apps *me,
 	spin_unlock(&clst->hlock);
 }
 
-static int get_page_list(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
-			struct fastrpc_buf *ibuf, struct fastrpc_buf *obuf)
+static int get_page_list(uint32_t kernel, struct smq_invoke_ctx *ctx)
 {
+	struct fastrpc_apps *me = &gfa;
 	struct smq_phy_page *pgstart, *pages;
 	struct smq_invoke_buf *list;
+	struct fastrpc_buf *ibuf = &ctx->dev->buf;
+	struct fastrpc_buf *obuf = &ctx->obuf;
+	remote_arg_t *pra = ctx->pra;
+	uint32_t sc = ctx->sc;
 	int i, rlen, err = 0;
 	int inbufs = REMOTE_SCALARS_INBUFS(sc);
 	int outbufs = REMOTE_SCALARS_OUTBUFS(sc);
@@ -506,11 +515,21 @@ static int get_page_list(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 			continue;
 		buf = pra[i].buf.pv;
 		num = buf_num_pages(buf, len);
-		if (!kernel)
-			list[i].num = buf_get_pages(buf, len, num,
-				i >= inbufs, pages, rlen / sizeof(*pages));
-		else
-			list[i].num = 0;
+		if (!kernel) {
+			if (me->smmu.enabled) {
+				VERIFY(err, 0 != access_ok(i >= inbufs ?
+					VERIFY_WRITE : VERIFY_READ,
+					(void __user *)buf, len));
+				if (err)
+					goto bail;
+				if (ctx->fds && (ctx->fds[i] >= 0))
+					list[i].num = 1;
+			} else {
+				list[i].num = buf_get_pages(buf, len, num,
+						i >= inbufs, pages,
+						rlen / sizeof(*pages));
+			}
+		}
 		VERIFY(err, list[i].num >= 0);
 		if (err)
 			goto bail;
@@ -539,20 +558,25 @@ static int get_page_list(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 	return err;
 }
 
-static int get_args(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
-			remote_arg_t *rpra, remote_arg_t *upra,
-			struct fastrpc_buf *ibuf, struct fastrpc_buf **abufs,
-			int *nbufs, int *fds, struct ion_handle **handles)
+static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx,
+			remote_arg_t *upra)
 {
 	struct fastrpc_apps *me = &gfa;
 	struct smq_invoke_buf *list;
-	struct fastrpc_buf *pbuf = ibuf, *obufs = 0;
+	struct fastrpc_buf *pbuf = &ctx->obuf, *obufs = 0;
 	struct smq_phy_page *pages;
+	struct vm_area_struct *vma;
+	struct ion_handle **handles = ctx->handles;
 	void *args;
+	remote_arg_t *pra = ctx->pra;
+	remote_arg_t *rpra = ctx->rpra;
+	uint32_t sc = ctx->sc, start;
 	int i, rlen, size, used, inh, bufs = 0, err = 0;
 	int inbufs = REMOTE_SCALARS_INBUFS(sc);
 	int outbufs = REMOTE_SCALARS_OUTBUFS(sc);
-	unsigned long iova, len;
+	int *fds = ctx->fds, idx, num;
+	unsigned long len;
+	ion_phys_addr_t iova;
 
 	list = smq_invoke_buf_start(rpra, sc);
 	pages = smq_phy_page_start(sc, list);
@@ -565,7 +589,10 @@ static int get_args(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 		if (!rpra[i].buf.len)
 			continue;
 		if (me->smmu.enabled && fds && (fds[i] >= 0)) {
+			start = buf_page_start(pra[i].buf.pv);
 			len = buf_page_size(pra[i].buf.len);
+			num = buf_num_pages(pra[i].buf.pv, pra[i].buf.len);
+			idx = list[i].pgidx;
 			handles[i] = ion_import_dma_buf(me->iclient, fds[i]);
 			VERIFY(err, 0 == IS_ERR_OR_NULL(handles[i]));
 			if (err)
@@ -575,10 +602,15 @@ static int get_args(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 						&iova, &len, 0, 0));
 			if (err)
 				goto bail;
+			VERIFY(err, (num << PAGE_SHIFT) <= len);
+			if (err)
+				goto bail;
+			VERIFY(err, 0 != (vma = find_vma(current->mm, start)));
+			if (err)
+				goto bail;
 			rpra[i].buf.pv = pra[i].buf.pv;
-			list[i].num = 1;
-			pages[list[i].pgidx].addr = iova;
-			pages[list[i].pgidx].size = len;
+			pages[idx].addr = iova + (start - vma->vm_start);
+			pages[idx].size = num << PAGE_SHIFT;
 			continue;
 		} else if (list[i].num) {
 			rpra[i].buf.pv = pra[i].buf.pv;
@@ -642,8 +674,8 @@ static int get_args(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 	}
 	dmac_flush_range(rpra, (char *)rpra + used);
  bail:
-	*abufs = obufs;
-	*nbufs = bufs;
+	ctx->abufs = obufs;
+	ctx->nbufs = bufs;
 	return err;
 }
 
@@ -914,8 +946,13 @@ static void add_dev(struct fastrpc_apps *me, struct fastrpc_device *dev)
 	spin_unlock(&me->hlock);
 	return;
 }
-
+#ifdef VENDOR_EDIT	
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/18, modify patch for bug 515596, enter camera, 
+ * adsp crashed. case id 01758302 */
+static int fastrpc_release_current_dsp_process(struct file_data *fdata);
+#else
 static int fastrpc_release_current_dsp_process(void);
+#endif
 
 static int fastrpc_internal_invoke(struct fastrpc_apps *me, uint32_t mode,
 			uint32_t kernel,
@@ -950,14 +987,11 @@ static int fastrpc_internal_invoke(struct fastrpc_apps *me, uint32_t mode,
 		VERIFY(err, 0 == get_dev(me, &ctx->dev));
 		if (err)
 			goto bail;
-		VERIFY(err, 0 == get_page_list(kernel, ctx->sc, ctx->pra,
-					&ctx->dev->buf, &ctx->obuf));
+		VERIFY(err, 0 == get_page_list(kernel, ctx));
 		if (err)
 			goto bail;
 		ctx->rpra = (remote_arg_t *)ctx->obuf.virt;
-		VERIFY(err, 0 == get_args(kernel, ctx->sc, ctx->pra, ctx->rpra,
-				invoke->pra, &ctx->obuf, &ctx->abufs,
-				&ctx->nbufs, ctx->fds, ctx->handles));
+		VERIFY(err, 0 == get_args(kernel, ctx, invoke->pra));
 		if (err)
 			goto bail;
 	}
@@ -1014,16 +1048,26 @@ static int fastrpc_create_current_dsp_process(void)
 		FASTRPC_MODE_PARALLEL, 1, &ioctl)));
 	return err;
 }
-
+#ifdef VENDOR_EDIT	
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/18, modify patch for bug 515596, enter camera, 
+ * adsp crashed. case id 01758302 */
+static int fastrpc_release_current_dsp_process(struct file_data *fdata)
+#else
 static int fastrpc_release_current_dsp_process(void)
+#endif
 {
 	int err = 0;
 	struct fastrpc_apps *me = &gfa;
 	struct fastrpc_ioctl_invoke_fd ioctl;
 	remote_arg_t ra[1];
 	int tgid = 0;
-
-	tgid = current->tgid;
+#ifdef VENDOR_EDIT	
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/18, modify patch for bug 515596, enter camera, 
+ * adsp crashed. case id 01758302 */
+	tgid = fdata->tgid;
+#else
+    tgid = current->tgid;
+#endif
 	ra[0].buf.pv = &tgid;
 	ra[0].buf.len = sizeof(tgid);
 	ioctl.inv.handle = 1;
@@ -1243,8 +1287,13 @@ static int fastrpc_device_release(struct inode *inode, struct file *file)
 {
 	struct file_data *fdata = (struct file_data *)file->private_data;
 	struct fastrpc_apps *me = &gfa;
-
-	(void)fastrpc_release_current_dsp_process();
+#ifdef VENDOR_EDIT	
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/18, modify patch for bug 515596, enter camera, 
+ * adsp crashed. case id 01758302 */
+	(void)fastrpc_release_current_dsp_process(fdata);
+#else
+    (void)fastrpc_release_current_dsp_process();  
+#endif
 	cleanup_current_dev();
 	if (fdata) {
 		struct fastrpc_mmap *map = 0;
@@ -1296,6 +1345,11 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 
 		spin_lock_init(&fdata->hlock);
 		INIT_HLIST_HEAD(&fdata->hlst);
+#ifdef VENDOR_EDIT	
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/18, add patch for bug 515596, enter camera, 
+ * adsp crashed. case id 01758302 */
+		fdata->tgid = current->tgid;
+#endif
 
 		VERIFY(err, 0 == fastrpc_create_current_dsp_process());
 		if (err)

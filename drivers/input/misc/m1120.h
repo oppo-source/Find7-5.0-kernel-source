@@ -28,7 +28,7 @@
 /* register map */
 /* ********************************************************* */
 #define M1120_REG_PERSINT					(0x00)
-#define M1120_VAL_PERSINT_COUNT(n)			((n-1)<<4)					
+#define M1120_VAL_PERSINT_COUNT			    (0x80)					
 #define M1120_VAL_PERSINT_INTCLR			(0x01)
 	/*
 		[7:4]	PERS		: interrupt persistence count
@@ -168,9 +168,11 @@
 /* ********************************************************* */
 /* ioctl command */
 /* ********************************************************* */
- typedef  struct 
+typedef  struct 
 {
     short cali_flag;
+    short value_30degree;    
+    short value_70degree;        
     short lowthd;
     short highthd;
 }RotorDetectionCaliData;
@@ -207,7 +209,7 @@
 /* delay property */
 /* ********************************************************* */
 #define M1120_DELAY_MAX						(200)	// ms
-#define M1120_DELAY_MIN						(20)	// ms
+#define M1120_DELAY_MIN						(50)	// ms
 #define M1120_DELAY_FOR_READY				(60)	// ms
 /* ********************************************************* */
 
@@ -270,12 +272,14 @@ typedef struct {
 	m1120_reg_t			reg;
 	bool				irq_enabled;
 	int					calibrated_data;
-	int					last_data;
+	int					irq_source;
+    short               value_30degree;
+    short               value_70degree;
 	short				thrhigh;
 	short				thrlow;
-
+    bool                last_state;
 	struct delayed_work	work;
-
+        
 	struct regulator *					power_vi2c;
 	struct regulator *					power_vdd;
 	int					igpio;

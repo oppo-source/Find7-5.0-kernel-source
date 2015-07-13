@@ -173,11 +173,26 @@ static ssize_t pn544_dev_read(struct file *filp, char __user *buf, size_t count,
 
 		pn544_dev->irq_enabled = true;
 		enable_irq(pn544_dev->client->irq);
+//#ifdef VENDOR_EDIT
+//yifei.jiao@Connectivity.NFC, 2015/03/06, Add for for NFC_SMX when standby
+		ret = enable_irq_wake(pn544_dev->client->irq);			
+		if(ret < 0)
+		{
+			printk("%s,enable_irq_wake  %d\n",__func__,ret);
+		}
+//#endif /* VENDOR_EDIT */		
 		ret = wait_event_interruptible(pn544_dev->read_wq,
 				gpio_get_value(pn544_dev->irq_gpio));
 
 		pn544_disable_irq(pn544_dev);
-
+//#ifdef VENDOR_EDIT
+//yifei.jiao@Connectivity.NFC, 2015/03/06, Add for for NFC_SMX when standby		
+		ret = disable_irq_wake(pn544_dev->client->irq);
+		if(ret < 0)
+		{
+			printk("%s,disable_irq_wake %d\n",__func__,ret);
+		}
+//#endif /* VENDOR_EDIT */
 		if (ret)
 			goto fail;
 	}
@@ -273,13 +288,9 @@ static ssize_t pn544_dev_write(struct file *filp, const char __user *buf, size_t
 
 static int pn544_dev_open(struct inode *inode, struct file *filp)
 {
-
 	struct pn544_dev *pn544_dev = container_of(filp->private_data, struct pn544_dev, pn544_device);
-	
 	filp->private_data = pn544_dev;
-
 	pr_err("%s : %d,%d\n", __func__, imajor(inode), iminor(inode));
-
 	return 0;
 }
 
@@ -287,7 +298,7 @@ static long pn544_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 {
 	struct pn544_dev *pn544_dev = filp->private_data;
 /*OPPO yuyi 2013-10-04 add begin for NFC_SMX when standby*/
-	int ret = 0;
+//	int ret = 0;
 /*OPPO yuyi 2013-10-04 add end for NFC_SMX when standby*/
 	switch (cmd) 
 	{
@@ -298,11 +309,12 @@ static long pn544_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			 */
 			printk("%s power on with firmware\n", __func__);
 /*OPPO yuyi 2013-10-04 add begin for NFC_SMX when standby*/
-			ret = disable_irq_wake(pn544_dev->client->irq);
+/*			ret = disable_irq_wake(pn544_dev->client->irq);
 			if(ret < 0)
 				{
 					printk("%s,power on with firmware disable_irq_wake %d\n",__func__,ret);
 				}	
+				*/
 /*OPPO yuyi 2013-10-04 add end for NFC_SMX when standby*/
 			gpio_set_value(pn544_dev->ven_gpio, 1);
 			gpio_set_value(pn544_dev->firm_gpio, 1);
@@ -316,11 +328,12 @@ static long pn544_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 		{
 			/* power on */
 /*OPPO yuyi 2013-10-04 add begin for NFC_SMX when standby*/
-			ret = enable_irq_wake(pn544_dev->client->irq);
-			if(ret < 0)
-				{
-					printk("%s,power on enable_irq_wake  %d\n",__func__,ret);
-				}
+//			ret = enable_irq_wake(pn544_dev->client->irq);
+//			if(ret < 0)
+//				{
+//					printk("%s,power on enable_irq_wake  %d\n",__func__,ret);
+//				}
+				
 /*OPPO yuyi 2013-10-04 add end for NFC_SMX when standby*/
 			printk("%s power on\n", __func__);
 			gpio_set_value(pn544_dev->firm_gpio, 0);
@@ -331,17 +344,18 @@ static long pn544_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 		{
 			/* power off */
 /*OPPO yuyi 2013-10-04 add begin for NFC_SMX when standby*/
-			ret = disable_irq_wake(pn544_dev->client->irq);
-			if(ret < 0)
-				{
-					printk("%s,power off disable_irq_wake %d\n",__func__,ret);
-				}
+//			ret = disable_irq_wake(pn544_dev->client->irq);
+//			if(ret < 0)
+//				{
+//					printk("%s,power off disable_irq_wake %d\n",__func__,ret);
+//				}
+				
 /*OPPO yuyi 2013-10-04 add end for NFC_SMX when standby*/
 			printk("%s power off\n", __func__);
 			gpio_set_value(pn544_dev->firm_gpio, 0);
 			gpio_set_value(pn544_dev->ven_gpio, 0);
 			msleep(50);
-		} else {
+		}else {
 			pr_err("%s bad arg %lu\n", __func__, arg);
 			return -EINVAL;
 		}
@@ -492,9 +506,9 @@ static int pn544_probe(struct i2c_client *client, const struct i2c_device_id *id
 
 	#ifdef CONFIG_VENDOR_EDIT
 	/*liuhd add for sleep current because of nfc  2013-12-17*/
-	gpio_set_value(pn544_dev->ven_gpio, 1);
-	msleep(10);
-      gpio_set_value(pn544_dev->ven_gpio, 0);
+	//gpio_set_value(pn544_dev->ven_gpio, 1);
+	//msleep(10);
+    //gpio_set_value(pn544_dev->ven_gpio, 0);
 	#endif
 	/*add end by liuhd 2013-12-17*/
 	return 0;

@@ -75,6 +75,14 @@
 #include "f_serial.c"
 #include "f_acm.c"
 #include "f_adb.c"
+
+#ifdef VENDOR_EDIT
+//Wangwei@Prd.Android.USB, 2014/06/12, Add for support odb
+#ifndef CONFIG_OPPO_MSM_14001
+#include "f_odb.c"
+#endif  /* CONFIG_OPPO_MSM_14001 */
+#endif  /* VENDOR_EDIT */
+
 #include "f_ccid.c"
 #include "f_mtp.c"
 #include "f_accessory.c"
@@ -586,6 +594,126 @@ static void adb_closed_callback(void)
 }
 
 
+#ifdef VENDOR_EDIT
+//LinJie.Xu@Prd.Android.USB, 2014/06/12, Add for Support odb 
+#ifndef CONFIG_OPPO_MSM_14001
+/*-------------------------------------------------------------------------*/
+/* Supported functions initialization */
+
+struct odb_data {
+	bool opened;
+	bool enabled;
+	struct android_dev *dev;
+};
+
+static void odb_function_cleanup(struct android_usb_function *f)
+{
+	pr_err("%s: odb_function_cleanup OK\n", __func__);
+	odb_cleanup();
+	kfree(f->config);
+}
+
+static int
+odb_function_bind_config(struct android_usb_function *f,
+		struct usb_configuration *c)
+{
+	pr_err("%s: odb_function_bind_config OK\n", __func__);
+	return odb_bind_config(c);
+}
+
+static void odb_android_function_enable(struct android_usb_function *f)
+{
+	struct android_dev *dev = f->android_dev;
+	struct odb_data *data = f->config;
+	pr_err("%s: odb_android_function_enable OK\n", __func__);
+	data->enabled = true;
+
+
+	/* Disable the gadget until adbd is ready */
+	if (!data->opened)
+		android_disable(dev);
+}
+
+static int
+odb_function_init(struct android_usb_function *f,
+		struct usb_composite_dev *cdev)
+{
+	pr_err("%s: odb_function_init OK\n", __func__);
+	f->config = kzalloc(sizeof(struct odb_data), GFP_KERNEL);
+	if (!f->config)
+		return -ENOMEM;
+
+	return odb_setup();
+}
+
+static void odb_android_function_disable(struct android_usb_function *f)
+{
+	struct android_dev *dev = f->android_dev;
+	struct odb_data *data = f->config;
+	pr_err("%s: odb_android_function_disable OK\n", __func__);
+	data->enabled = false;
+
+	/* Balance the disable that was called in closed_callback */
+	if (!data->opened)
+		android_enable(dev);
+}
+
+static struct android_usb_function odb_function = {
+	.name		= "odb",
+	.enable		= odb_android_function_enable,
+	.disable	= odb_android_function_disable,
+	.init		= odb_function_init,
+	.cleanup	= odb_function_cleanup,
+	.bind_config	= odb_function_bind_config,
+};
+
+static void odb_ready_callback(void)
+{
+	struct android_dev *dev = odb_function.android_dev;
+	struct odb_data *data = odb_function.config;
+
+	/* dev is null in case ADB is not in the composition */
+	if (dev)
+		mutex_lock(&dev->mutex);
+
+	/* Save dev in case the adb function will get disabled */
+	data->dev = dev;
+	data->opened = true;
+
+	if (data->enabled && dev)
+		android_enable(dev);
+
+	if (dev)
+		mutex_unlock(&dev->mutex);
+}
+
+static void odb_closed_callback(void)
+{
+	struct odb_data *data = odb_function.config;
+	struct android_dev *dev = odb_function.android_dev;
+
+	/* In case new composition is without ODB, use saved one */
+	if (!dev)
+		dev = data->dev;
+
+	if (!dev)
+		pr_err("odb_closed_callback: data->dev is NULL");
+
+	if (dev)
+		mutex_lock(&dev->mutex);
+
+	data->opened = false;
+
+	if (data->enabled && dev)
+		android_disable(dev);
+
+	data->dev = NULL;
+
+	if (dev)
+		mutex_unlock(&dev->mutex);
+}
+#endif  /* CONFIG_OPPO_MSM_14001 */  
+#endif /* VENDOR_EDIT */
 /*-------------------------------------------------------------------------*/
 /* Supported functions initialization */
 
@@ -2104,6 +2232,14 @@ static struct android_usb_function *supported_functions[] = {
 	&qdss_function,
 	&serial_function,
 	&adb_function,
+	
+#ifdef VENDOR_EDIT
+//Wangwei@Prd.Android.USB, 2014/06/12, Add for support odb	
+#ifndef CONFIG_OPPO_MSM_14001
+	&odb_function,
+#endif  /* CONFIG_OPPO_MSM_14001 */
+#endif /* VENDOR_EDIT */
+	
 	&ccid_function,
 	&acm_function,
 	&mtp_function,
@@ -2832,6 +2968,8 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	struct android_configuration	*conf;
 	int value = -EOPNOTSUPP;
 	unsigned long flags;
+	bool do_work = false;
+	bool prev_configured = false;
 
 	req->zero = 0;
 	req->complete = composite_setup_complete;
@@ -2850,6 +2988,12 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 			}
 		}
 
+	/*
+	 * skip the  work when 2nd set config arrives
+	 * with same value from the host.
+	 */
+	if (cdev->config)
+		prev_configured = true;
 	/* Special case the accessory function.
 	 * It needs to handle control requests before it is enabled.
 	 */
@@ -2862,13 +3006,15 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	spin_lock_irqsave(&cdev->lock, flags);
 	if (!dev->connected) {
 		dev->connected = 1;
-		schedule_work(&dev->work);
+		do_work = true;
 	} else if (c->bRequest == USB_REQ_SET_CONFIGURATION &&
 						cdev->config) {
-		schedule_work(&dev->work);
+		if (!prev_configured)
+			do_work = true;
 	}
 	spin_unlock_irqrestore(&cdev->lock, flags);
-
+	if (do_work)
+		schedule_work(&dev->work);
 	return value;
 }
 

@@ -11,6 +11,7 @@
 
 #include <linux/input.h>
 #include <linux/delay.h>
+#include <linux/time.h>
 
 #ifndef CONFIG_USE_OF
 #include <linux/spi/fpc1020_common.h>
@@ -18,7 +19,10 @@
 #else
 #include "fpc1020_common.h"
 #include "fpc1020_capture.h"
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for fingerprint animation
 #include "fpc1020_input.h"
+#endif /* VENDOR_EDIT */
 #endif
 
 
@@ -26,14 +30,8 @@
 /* function prototypes							*/
 /* -------------------------------------------------------------------- */
 static size_t fpc1020_calc_image_size(fpc1020_data_t *fpc1020);
+int fpc1020_capture_finger_detect_settings(fpc1020_data_t *fpc1020);
 
-
-/* -------------------------------------------------------------------- */
-/* driver constants							*/
-/* -------------------------------------------------------------------- */
-#define FPC1020_FINGER_UP_THRESHOLD		0
-#define FPC1020_FINGER_DOWN_THRESHOLD		6
-#define FPC1020_CAPTURE_WAIT_FINGER_DELAY_MS 	20
 
 
 /* -------------------------------------------------------------------- */
@@ -44,6 +42,7 @@ int fpc1020_init_capture(fpc1020_data_t *fpc1020)
 	fpc1020->capture.state = FPC1020_CAPTURE_STATE_IDLE;
 	fpc1020->capture.current_mode = FPC1020_MODE_IDLE;
 	fpc1020->capture.available_bytes = 0;
+	fpc1020->capture.deferred_finger_up = false;
 
 	init_waitqueue_head(&fpc1020->capture.wq_data_avail);
 
@@ -78,6 +77,10 @@ int fpc1020_write_test_setup(fpc1020_data_t *fpc1020, u16 pattern)
 
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_CONF, &config);
 	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	error = fpc1020_capture_settings(fpc1020, 0);
 	if (error)
 		goto out;
 
@@ -149,23 +152,38 @@ bool fpc1020_capture_check_ready(fpc1020_data_t *fpc1020)
 {
 	fpc1020_capture_state_t state = fpc1020->capture.state;
 
-	return (state == FPC1020_CAPTURE_STATE_IDLE) ||
-		(state == FPC1020_CAPTURE_STATE_COMPLETED) ||
-		(state == FPC1020_CAPTURE_STATE_FAILED);
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-11-19 Add for debug info for fpc1020_read no return
+	static fpc1020_capture_state_t last_state = 0;
+	if (last_state != state) {
+		dev_dbg(&fpc1020->spi->dev, "%s state %d nav_enabled %d\n", __func__, state, fpc1020->nav.enabled);
+		last_state = state;
+	}
+#endif /* VENDOR_EDIT */
+
+
+	return ((state == FPC1020_CAPTURE_STATE_IDLE) ||
+			(state == FPC1020_CAPTURE_STATE_COMPLETED) ||
+			(state == FPC1020_CAPTURE_STATE_FAILED)) && 
+		(!fpc1020->nav.enabled);
 }
 
 
 /* -------------------------------------------------------------------- */
 int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 {
+	struct timespec ts_t1, ts_t2, ts_t3, ts_delta;
+	int time_settings_us[FPC1020_BUFFER_MAX_IMAGES];
+	int time_capture_us[FPC1020_BUFFER_MAX_IMAGES];
+	int time_capture_sum_us;
 	int error = 0;
-	bool expect_finger, adjust_settings;
+	bool wait_finger_down = false;
+	bool wait_finger_up = false;
+	bool adjust_settings;
 	fpc1020_capture_mode_t mode = fpc1020->capture.current_mode;
 	int current_capture, capture_count;
 	int image_offset;
 	size_t image_byte_size;
-
-	expect_finger = (mode == FPC1020_MODE_WAIT_AND_CAPTURE);
 
 	fpc1020->capture.state = FPC1020_CAPTURE_STATE_WRITE_SETTINGS;
 
@@ -175,6 +193,9 @@ int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 
 	switch (mode) {
 	case FPC1020_MODE_WAIT_AND_CAPTURE:
+		wait_finger_down =
+		wait_finger_up   = true;
+
 	case FPC1020_MODE_SINGLE_CAPTURE:
 		capture_count = fpc1020->setup.capture_count;
 		adjust_settings = true;
@@ -205,6 +226,20 @@ int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 		error = fpc1020_write_test_setup(fpc1020, 0x0000);
 		break;
 
+	case FPC1020_MODE_WAIT_FINGER_DOWN:
+		wait_finger_down = true;
+		capture_count = 0;
+		adjust_settings = false;
+		error = fpc1020_write_capture_setup(fpc1020);
+		break;
+
+	case FPC1020_MODE_WAIT_FINGER_UP:
+		wait_finger_up = true;
+		capture_count = 0;
+		adjust_settings = false;
+		error = fpc1020_write_capture_setup(fpc1020);
+		break;
+
 	case FPC1020_MODE_IDLE:
 	default:
 		capture_count = 0;
@@ -231,7 +266,35 @@ int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 		mode,
 		capture_count);
 
-	if (expect_finger) {
+	if (!wait_finger_down)
+		fpc1020->capture.deferred_finger_up = false;
+
+	if (wait_finger_down) {
+		error = fpc1020_capture_finger_detect_settings(fpc1020);
+		if (error < 0)
+			goto out_error;
+	}
+
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-11-05 Remove for don't wait finger up
+	if (wait_finger_down && fpc1020->capture.deferred_finger_up) {
+		fpc1020->capture.state =
+				FPC1020_CAPTURE_STATE_WAIT_FOR_FINGER_UP;
+
+		dev_dbg(&fpc1020->spi->dev, "Waiting for (deferred) finger up\n");
+
+		error = fpc1020_capture_wait_finger_up(fpc1020);
+
+		if (error < 0)
+			goto out_error;
+
+		dev_dbg(&fpc1020->spi->dev, "Finger up\n");
+
+		fpc1020->capture.deferred_finger_up = false;
+	}
+#endif /* VENDOR_EDIT */
+
+	if (wait_finger_down) {
 		fpc1020->capture.state =
 				FPC1020_CAPTURE_STATE_WAIT_FOR_FINGER_DOWN;
 
@@ -241,18 +304,39 @@ int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 			goto out_error;
 
 		dev_dbg(&fpc1020->spi->dev, "Finger down\n");
-        fpc1020_report_finger_down(fpc1020);
+
+#ifdef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for fingerprint animation
+		if (mode == FPC1020_MODE_WAIT_AND_CAPTURE) {
+			fpc1020_report_finger_down(fpc1020);
+		}
+		//Lycan.Wang@Prd.BasicDrv, 2014-11-05 Add for don't wait finger up
+		fpc1020->capture.deferred_finger_up = false;
+#endif /* VENDOR_EDIT */
+
+		if (mode == FPC1020_MODE_WAIT_FINGER_DOWN) {
+
+			fpc1020->capture.available_bytes = 4;
+			fpc1020->huge_buffer[0] = 'F';
+			fpc1020->huge_buffer[1] = ':';
+			fpc1020->huge_buffer[2] = 'D';
+			fpc1020->huge_buffer[3] = 'N';
+		}
 	}
 
 	current_capture = 0;
 	image_offset = 0;
 
+	fpc1020->diag.last_capture_time = 0;
+
 	while (capture_count && (error >= 0))
 	{
+		getnstimeofday(&ts_t1);
+
 		fpc1020->capture.state = FPC1020_CAPTURE_STATE_ACQUIRE;
 
 		dev_dbg(&fpc1020->spi->dev,
-			"Capture, frame %d \n",
+			"Capture, frame #%d \n",
 			current_capture + 1);
 
 		error =	(!adjust_settings) ? 0 :
@@ -260,6 +344,8 @@ int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 
 		if (error < 0)
 			goto out_error;
+
+		getnstimeofday(&ts_t2);
 
 		error = fpc1020_cmd(fpc1020,
 				FPC1020_CMD_CAPTURE_IMAGE,
@@ -282,28 +368,89 @@ int fpc1020_capture_task(fpc1020_data_t *fpc1020)
 							(int)image_byte_size : 0;
 		fpc1020->capture.last_error = error;
 
+		getnstimeofday(&ts_t3);
+
+		ts_delta = timespec_sub(ts_t2, ts_t1);
+		time_settings_us[current_capture] =
+			ts_delta.tv_sec * USEC_PER_SEC +
+			(ts_delta.tv_nsec / NSEC_PER_USEC);
+
+		ts_delta = timespec_sub(ts_t3, ts_t2);
+		time_capture_us[current_capture] =
+			ts_delta.tv_sec * USEC_PER_SEC +
+			(ts_delta.tv_nsec / NSEC_PER_USEC);
+
 		capture_count--;
 		current_capture++;
 		image_offset += (int)image_byte_size;
 	}
 
-	wake_up_interruptible(&fpc1020->capture.wq_data_avail);
+	if (mode != FPC1020_MODE_WAIT_FINGER_UP)
+		wake_up_interruptible(&fpc1020->capture.wq_data_avail);
 
-	if (expect_finger) {
+	if (wait_finger_up) {
 		fpc1020->capture.state =
 				FPC1020_CAPTURE_STATE_WAIT_FOR_FINGER_UP;
 
-		error = FPC1020_FINGER_UP_THRESHOLD + 1;
-
-		while (error > FPC1020_FINGER_UP_THRESHOLD)
-			error = fpc1020_check_finger_present_sum(fpc1020);
-
+		error = fpc1020_capture_finger_detect_settings(fpc1020);
 		if (error < 0)
 			goto out_error;
 
+		error = fpc1020_capture_wait_finger_up(fpc1020);
+
+		if(error == -EINTR) {
+			dev_dbg(&fpc1020->spi->dev, "Finger up check interrupted\n");
+			fpc1020->capture.deferred_finger_up = true;
+			goto out_interrupted;
+
+		} else if (error < 0)
+			goto out_error;
+
+		if (mode == FPC1020_MODE_WAIT_FINGER_UP) {
+			fpc1020->capture.available_bytes = 4;
+			fpc1020->huge_buffer[0] = 'F';
+			fpc1020->huge_buffer[1] = ':';
+			fpc1020->huge_buffer[2] = 'U';
+			fpc1020->huge_buffer[3] = 'P';
+
+			wake_up_interruptible(&fpc1020->capture.wq_data_avail);
+		}
+
 		dev_dbg(&fpc1020->spi->dev, "Finger up\n");
-        fpc1020_report_finger_up(fpc1020);
+#ifdef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for fingerprint animation
+		if (mode == FPC1020_MODE_WAIT_AND_CAPTURE) {
+			fpc1020_report_finger_up(fpc1020);
+		}
+#endif /* VENDOR_EDIT */
 	}
+
+out_interrupted:
+
+	capture_count = 0;
+	time_capture_sum_us = 0;
+
+	while (current_capture){
+
+		current_capture--;
+
+		dev_dbg(&fpc1020->spi->dev,
+			"Frame #%d acq. time %d+%d=%d (us)\n",
+			capture_count + 1,
+			time_settings_us[capture_count],
+			time_capture_us[capture_count],
+			time_settings_us[capture_count] +
+				time_capture_us[capture_count]);
+
+		time_capture_sum_us += time_settings_us[capture_count];
+		time_capture_sum_us += time_capture_us[capture_count];
+
+		capture_count++;
+	}
+	fpc1020->diag.last_capture_time = time_capture_sum_us / 1000;
+
+	dev_dbg(&fpc1020->spi->dev,
+		"Total acq. time %d (us)\n", time_capture_sum_us);
 
 out_error:
 	fpc1020->capture.last_error = error;
@@ -312,6 +459,12 @@ out_error:
 		fpc1020->capture.state = FPC1020_CAPTURE_STATE_FAILED;
 		dev_err(&fpc1020->spi->dev, "%s %s %d\n", __func__,
 			(error == -EINTR) ? "TERMINATED" : "FAILED", error);
+#ifdef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-16 Add for report up when capture terminated
+		if (mode == FPC1020_MODE_WAIT_AND_CAPTURE) {
+			fpc1020_report_finger_up(fpc1020);
+		}
+#endif /* VENDOR_EDIT */
 	} else {
 		fpc1020->capture.state = FPC1020_CAPTURE_STATE_COMPLETED;
 		dev_err(&fpc1020->spi->dev, "%s OK\n", __func__);
@@ -328,14 +481,14 @@ int fpc1020_capture_wait_finger_down(fpc1020_data_t *fpc1020)
 
 	error = fpc1020_wait_finger_present(fpc1020);
 
-	while (!finger_down && (error >= 0))
-	{
+	while (!finger_down && (error >= 0)) {
+
 		if (fpc1020->worker.stop_request)
 			error = -EINTR;
 		else
 			error = fpc1020_check_finger_present_sum(fpc1020);
 
-		if (error > FPC1020_FINGER_DOWN_THRESHOLD)
+		if (error > fpc1020->setup.capture_finger_down_threshold)
 			finger_down = true;
 		else
 			msleep(FPC1020_CAPTURE_WAIT_FINGER_DELAY_MS);
@@ -344,6 +497,31 @@ int fpc1020_capture_wait_finger_down(fpc1020_data_t *fpc1020)
 	fpc1020_read_irq(fpc1020, true);
 
 	return (finger_down) ? 0 : error;
+}
+
+
+/* -------------------------------------------------------------------- */
+int fpc1020_capture_wait_finger_up(fpc1020_data_t *fpc1020)
+{
+	int error = 0;
+	bool finger_up = false;
+
+	while (!finger_up && (error >= 0)) {
+
+		if (fpc1020->worker.stop_request)
+			error = -EINTR;
+		else
+			error = fpc1020_check_finger_present_sum(fpc1020);
+
+		if ((error >= 0) && (error < fpc1020->setup.capture_finger_up_threshold + 1))
+			finger_up = true;
+		else
+			msleep(FPC1020_CAPTURE_WAIT_FINGER_DELAY_MS);
+	}
+
+	fpc1020_read_irq(fpc1020, true);
+
+	return (finger_up) ? 0 : error;
 }
 
 
@@ -358,12 +536,13 @@ int fpc1020_capture_settings(fpc1020_data_t *fpc1020, int select)
 
 	dev_dbg(&fpc1020->spi->dev, "%s #%d\n", __func__, select);
 
-	if (select >= FPC1020_BUFFER_MAX_IMAGES) {
+	if (select >= FPC1020_MAX_ADC_SETTINGS) {
 		error = -EINVAL;
 		goto out_err;
 	}
 
 	pxlCtrl = fpc1020->setup.pxl_ctrl[select];
+	pxlCtrl |= FPC1020_PXL_BIAS_CTRL;
 
 	adc_shift_gain = fpc1020->setup.adc_shift[select];
 	adc_shift_gain <<= 8;
@@ -388,9 +567,18 @@ out_err:
 
 
 /* -------------------------------------------------------------------- */
+int fpc1020_capture_finger_detect_settings(fpc1020_data_t *fpc1020)
+{
+	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
+
+	return fpc1020_capture_settings(fpc1020, FPC1020_MAX_ADC_SETTINGS - 1);
+}
+
+
+/* -------------------------------------------------------------------- */
 static size_t fpc1020_calc_image_size(fpc1020_data_t *fpc1020)
 {
-	int image_byte_size = fpc1020->setup.capture_row_count * 
+	int image_byte_size = fpc1020->setup.capture_row_count *
 				fpc1020->setup.capture_col_groups *
 				fpc1020->chip.adc_group_size;
 
@@ -434,6 +622,7 @@ int fpc1020_capture_set_crop(fpc1020_data_t *fpc1020,
 	return fpc1020_reg_access(fpc1020, &reg);
 }
 
+
 /* -------------------------------------------------------------------- */
 int fpc1020_capture_buffer(fpc1020_data_t *fpc1020,
 				u8 *data,
@@ -463,6 +652,23 @@ int fpc1020_capture_buffer(fpc1020_data_t *fpc1020,
 
 out_error:
 	dev_dbg(&fpc1020->spi->dev, "%s FAILED %d\n", __func__, error);
+
+	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
+extern int fpc1020_capture_deferred_task(fpc1020_data_t *fpc1020)
+{
+	int error = 0;
+
+	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
+
+	error = (fpc1020->capture.deferred_finger_up) ?
+		fpc1020_capture_wait_finger_up(fpc1020) : 0;
+
+	if (error >= 0)
+		fpc1020->capture.deferred_finger_up = false;
 
 	return error;
 }

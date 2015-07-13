@@ -21,7 +21,7 @@
 #include <linux/of_platform.h>
 #include <linux/memory.h>
 #include <linux/regulator/machine.h>
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 #include <linux/regulator/consumer.h> //ranfei
 #endif
 #include <linux/regulator/krait-regulator.h>
@@ -71,6 +71,10 @@ static char *saved_command_line_rf_version = NULL;
 static int  current_pcb_version_num = PCB_VERSION_UNKNOWN;
 static int  current_rf_version_num = RF_VERSION_UNKNOWN;
 
+#ifdef VENDOR_EDIT
+/* Goushengjun,2015-5-21 add for close BL when utomatic reboot	*/
+	int lcd_closebl_flag = 0;	
+#endif /*CONFIG_VENDOR_EDIT*/
 /* pcb_version_num: evb=10, evt=20, dvt=30, pvt=40, unkown=99 */
 int get_pcb_version(void)
 {
@@ -163,8 +167,12 @@ int __init board_rf_version_init(void)
 		current_rf_version_num = RF_VERSION__76;
 	else if (strstr(boot_command_line,"oppo.rf_version=77"))
 		current_rf_version_num = RF_VERSION__77;
+	else if (strstr(boot_command_line,"oppo.rf_version=87"))
+		current_rf_version_num = RF_VERSION__87;
 	else if (strstr(boot_command_line,"oppo.rf_version=88"))
 		current_rf_version_num = RF_VERSION__88;
+	else if (strstr(boot_command_line,"oppo.rf_version=89"))
+		current_rf_version_num = RF_VERSION__89;
 	else if (strstr(boot_command_line,"oppo.rf_version=98"))
 		current_rf_version_num = RF_VERSION__98;
 	else if (strstr(boot_command_line,"oppo.rf_version=99"))
@@ -235,6 +243,7 @@ enum{
 	MSM_BOOT_MODE__RF,
 	MSM_BOOT_MODE__WLAN,
 	MSM_BOOT_MODE__MOS,
+	MSM_BOOT_MODE__SILENCE,
 };
 
 static int ftm_mode = MSM_BOOT_MODE__NORMAL;
@@ -256,6 +265,8 @@ int __init  board_mfg_mode_init(void)
             ftm_mode = MSM_BOOT_MODE__RF;
         else if(strncmp(substr, "ftmrecovery", 5) == 0)
             ftm_mode = MSM_BOOT_MODE__RECOVERY;
+		else if(strncmp(substr, "ftmsilence", 10) == 0)
+	        ftm_mode = MSM_BOOT_MODE__SILENCE;
     } 	
 
 	pr_err("board_mfg_mode_init, " "ftm_mode=%d\n", ftm_mode);
@@ -348,20 +359,21 @@ static ssize_t closemodem_store(struct kobject *kobj, struct kobj_attribute *att
 int LCD_id = 0;
 int __init  board_LCD_id_index_init(void)
 {
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 //zwx 
 	int rc;
 	struct regulator *vdd_regulator_ldo9=0;
 	struct regulator *vdd_regulator_lvs2=0;
 #endif	
 	
+
 	if (strstr(boot_command_line," LCD_id<4"))
 		LCD_id = 2;
 	else if (strstr(boot_command_line," LCD_id=4"))
 		LCD_id = 4;
 	pr_err("board_LCD_id_init, " "LCD_id= %d yxr\n", LCD_id);
 
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 
 	/*zhangzhilong add for SIM1*/
 	printk( "zwx---power on l9");
@@ -653,7 +665,9 @@ static struct persistent_ram_descriptor msm_prd[] __initdata = {
 static struct persistent_ram msm_pr __initdata = {
 	.descs = msm_prd,
 	.num_descs = ARRAY_SIZE(msm_prd),
-	.start = /*0xE0200000,//*/PLAT_PHYS_OFFSET + SZ_1G + SZ_512M,
+	//.start = /*0xE0200000,//*/PLAT_PHYS_OFFSET + SZ_1G + SZ_512M,
+	//solve the problem samsung 6GB dai DDR can't boot up
+	.start = /*0xE0200000,//*/PLAT_PHYS_OFFSET + SZ_1G + SZ_256M,
 	.size = SZ_1M,
 };
 #endif  /* VENDOR_EDIT */
@@ -665,7 +679,22 @@ void __init msm8974_init_very_early(void)
 //Zhilong.Zhang@OnlineRd.Driver, 2013/12/03, Add for ram_console device
 	persistent_ram_early_init(&msm_pr);
 #endif  /* VENDOR_EDIT */
+#ifdef VENDOR_EDIT
+/* Goushengjun,2015-5-21 add for close BL when utomatic reboot	*/
+	if(strstr(boot_command_line, "oppo.lcd_closebl_flag=")) {
+        lcd_closebl_flag = 1;
+    }else{
+		lcd_closebl_flag = 0;
+	}	
+#endif /*CONFIG_VENDOR_EDIT*/
 }
+#ifdef VENDOR_EDIT
+/* Goushengjun,2015-5-21 add for close BL when utomatic reboot	*/
+unsigned int get_lcd_closebl_flag(void)
+{
+	return lcd_closebl_flag;
+}
+#endif /*CONFIG_VENDOR_EDIT*/
 
 static const char *msm8974_dt_match[] __initconst = {
 	"qcom,msm8974",

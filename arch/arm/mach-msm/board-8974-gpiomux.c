@@ -35,7 +35,7 @@ static struct gpiomux_setting ap2mdm_cfg = {
 };
 
 /*OPPO yuyi 2013-04-03 delete begin for 14021 nfc_spi*/
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 static struct gpiomux_setting mdm2ap_status_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
@@ -59,12 +59,16 @@ static struct gpiomux_setting mdm2ap_pblrdy = {
 };
 
 
+/* OPPO 2014-08-11 ranfei Delete begin for fpc1021 */
+#if 0
 static struct gpiomux_setting ap2mdm_soft_reset_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
 	.pull = GPIOMUX_PULL_NONE,
 	.dir = GPIOMUX_OUT_LOW,
 };
+#endif
+/* OPPO 2014-08-11 ranfei Delete end */
 
 static struct gpiomux_setting ap2mdm_wakeup = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -82,7 +86,7 @@ static struct msm_gpiomux_config mdm_configs[] __initdata = {
 		}
 	},
 /*OPPO yuyi 2013-04-03 delete begin for 14021 nfc_spi*/
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 	/* MDM2AP_STATUS */
 	{
 		.gpio = 46,
@@ -106,6 +110,8 @@ static struct msm_gpiomux_config mdm_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
+/* OPPO 2014-08-11 ranfei Delete begin for fpc1021 */
+#if 0
 	/* AP2MDM_SOFT_RESET, aka AP2MDM_PON_RESET_N */
 	{
 		.gpio = 24,
@@ -113,6 +119,8 @@ static struct msm_gpiomux_config mdm_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_soft_reset_cfg,
 		}
 	},
+#endif
+/* OPPO 2014-08-11 ranfei Delete end */
 	/* AP2MDM_WAKEUP */
 	{
 		.gpio = 104,
@@ -141,6 +149,24 @@ static struct gpiomux_setting slimbus = {
 	.drv = GPIOMUX_DRV_8MA,
 	.pull = GPIOMUX_PULL_KEEPER,
 };
+
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-02 Add for 14021 spi config
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
+static struct gpiomux_setting gpio_spi5_config = {
+	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_12MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting gpio_spi5_clk_config = {
+	.func = GPIOMUX_FUNC_3,
+	.drv = GPIOMUX_DRV_12MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+#endif
+#endif /* VENDOR_EDIT */
+
 
 #if defined(CONFIG_KS8851) || defined(CONFIG_KS8851_MODULE)
 static struct gpiomux_setting gpio_eth_config = {
@@ -195,7 +221,7 @@ static struct gpiomux_setting gpio_suspend_config[] = {
 		.dir = GPIOMUX_OUT_LOW,
 	},
 };
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 sec i2s use */
 static struct gpiomux_setting gpio_epm_config = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -206,7 +232,7 @@ static struct gpiomux_setting gpio_epm_config = {
 #endif
 
 /* OPPO 2014-06-26 ranfei Delete begin for fpc1021 */
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 static struct gpiomux_setting gpio_epm_marker_config = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv  = GPIOMUX_DRV_2MA,
@@ -306,7 +332,7 @@ static struct gpiomux_setting atmel_int_act_cfg = {
 };
 
 /* OPPO 2014-06-25 ranfei Add begin for fpc1021 */
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 static struct gpiomux_setting fpc_int_act_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_8MA,
@@ -336,7 +362,7 @@ static struct gpiomux_setting fpc_rst_sus_cfg = {
 /* OPPO 2014-06-25 ranfei Add end */
 
 /* OPPO 2014-06-27 ranfei Add begin for MXM1120 */
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 static struct gpiomux_setting dhall_int_act_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_8MA,
@@ -370,7 +396,7 @@ static struct gpiomux_setting taiko_int = {
 	.pull = GPIOMUX_PULL_NONE,
 };
 /* OPPO 2014-06-26 ranfei Delete begin for fpc1021 */
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 static struct gpiomux_setting hap_lvl_shft_suspended_config = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
@@ -387,7 +413,7 @@ static struct gpiomux_setting hap_lvl_shft_active_config = {
 
 static struct msm_gpiomux_config hap_lvl_shft_config[] __initdata = {
 /* OPPO 2014-06-26 ranfei Delete begin for fpc1021 */
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio = 86,
 		.settings = {
@@ -438,7 +464,7 @@ static struct gpiomux_setting hsic_hub_act_cfg = {
 };
 #endif
 /*OPPO yuyi 2013-04-03 delete end for nfc_spi*/
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 sec i2s use */
 static struct gpiomux_setting hsic_resume_act_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -467,7 +493,7 @@ static struct msm_gpiomux_config msm_hsic_configs[] = {
 			[GPIOMUX_SUSPENDED] = &hsic_sus_cfg,
 		},
 	},
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 sec i2s use */
 	{
 		.gpio = 80,
@@ -522,6 +548,27 @@ static struct gpiomux_setting hdmi_active_2_cfg = {
 	.drv = GPIOMUX_DRV_16MA,
 	.pull = GPIOMUX_PULL_DOWN,
 };
+
+static struct gpiomux_setting tf_card_detect_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_UP,
+	.dir = GPIOMUX_IN,
+};
+
+#ifdef VENDOR_EDIT
+//rongchun.zhang@EXP.BasicDrv, 2014-09-02 Add for 14091&&14021 TF CARD config
+static struct msm_gpiomux_config msm_tf_card_configs[] __initdata = {
+	{
+		.gpio = 77,
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &tf_card_detect_cfg,
+		},
+	},
+
+};
+#endif/* VENDOR_EDIT */
+
 
 static struct msm_gpiomux_config msm_mhl_configs[] __initdata = {
 	{
@@ -617,7 +664,7 @@ static struct msm_gpiomux_config msm_blsp2_uart7_configs[] __initdata = {
 	},
 };
 /*OPPO yuyi 2013-04-03 delete begin for 14021 nfc_spi*/
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 static struct msm_gpiomux_config msm_rumi_blsp_configs[] __initdata = {
 	{
 		.gpio      = 45,	/* BLSP2 UART8 TX */
@@ -665,7 +712,7 @@ static struct msm_gpiomux_config msm_lcd_configs[] __initdata = {
 #endif
 /* OPPO 2013-10-18 yxq added end */
 /* OPPO 2014-06-25 ranfei Add begin for fpc1021 */
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio      = 84,		/* fpc1021 reset */
 		.settings = {
@@ -683,7 +730,7 @@ static struct msm_gpiomux_config msm_lcd_configs[] __initdata = {
 #endif
 /* OPPO 2014-06-25 ranfei Add end */
 /* OPPO 2014-06-27 ranfei Add begin for MXM1120 */
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio      = 64,		/* digital hall IRQ */
 		.settings = {
@@ -702,7 +749,7 @@ static struct gpiomux_setting sdc4_suspend_cfg;
 /*OPPO 2013-11-04 liaofuchun add end*/
 
 static struct msm_gpiomux_config msm_epm_configs[] __initdata = {
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 sec i2s use */
 	{
 		.gpio      = 81,		/* EPM enable */
@@ -712,8 +759,7 @@ static struct msm_gpiomux_config msm_epm_configs[] __initdata = {
 	},
 #endif	
 /* OPPO 2014-06-26 ranfei Delete begin for fpc1021 */
-#ifndef CONFIG_OPPO_MSM_14021
-
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio      = 85,		/* EPM MARKER2 */
 		.settings = {
@@ -767,7 +813,7 @@ static struct gpiomux_setting gpio_blsp6_spi_suspend_config = {
 #endif
 //OPPO yuyi 2014-03-18 add end for 14001 NFC spi clk
 //OPPO yuyi 2014-06-28 add begin for 14021 NFC spi clk
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 static struct gpiomux_setting gpio_blsp8_spi3_config = {
 	.func = GPIOMUX_FUNC_1, 
 	.drv = GPIOMUX_DRV_8MA, 
@@ -841,7 +887,7 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 //OPPO yuyi 2014-03-18 add end for 14001 NFC spi clk
 
 //OPPO yuyi 2014-06-28 add begin for 14021 NFC spi clk
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio = 45, //BLSP1_QUP5 (BLSP6) MOSI
 		.settings = {
@@ -951,7 +997,7 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 #endif
 /*OPPO yuyi 2013-03-22 add end*/
 /* OPPO 2014-06-25 ranfei Delete begin for use for fpc1021 reset */
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio      = 83,		/* BLSP11 QUP I2C_DAT */
 		.settings = {
@@ -978,38 +1024,38 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_uart_config,
 		},
 	},
-/* OPPO 2014-06-18 ranfei Add begin for fpc1021 */
-#ifdef CONFIG_OPPO_MSM_14021
+/* OPPO 2014-08-11 ranfei Add begin for fpc1021 */
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 	{
-		.gpio      = 85,		/* BLSP2 QUP2 SPI_DATA_MOSI */
+		.gpio      = 23,		/* BLSP2 QUP2 SPI_DATA_MOSI */
 		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_spi_config,
+			[GPIOMUX_ACTIVE] = &gpio_spi5_config,
 			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[1],
 		},
 	},
 	{
-		.gpio      = 86,		/* BLSP2 QUP2 SPI_DATA_MISO */
+		.gpio      = 24,		/* BLSP2 QUP2 SPI_DATA_MISO */
 		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_spi_config,
+			[GPIOMUX_ACTIVE] = &gpio_spi5_config,
 			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[1],
 		},
 	},
 	{
-		.gpio      = 88,		/* BLSP2 QUP2 SPI_CLK */
+		.gpio      = 26,		/* BLSP2 QUP2 SPI_CLK */
 		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_spi_config,
-			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[1],
+			[GPIOMUX_ACTIVE] = &gpio_spi5_clk_config,
+			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
 		},
 	},
 	{
-		.gpio      = 87,		/* BLSP2 QUP2 SPI_CS0_N */
+		.gpio      = 25,		/* BLSP2 QUP2 SPI_CS0_N */
 		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_spi_config,
-			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[1],
+			[GPIOMUX_ACTIVE] = &gpio_spi5_config,
+			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
 		},
 	},
 #endif
-/* OPPO 2014-06-18 ranfei Add end */
+/* OPPO 2014-08-11 ranfei Add end */	
 	{
 		.gpio      = 53,		/* BLSP2 QUP4 SPI_DATA_MOSI */
 		.settings = {
@@ -1055,13 +1101,21 @@ static struct msm_gpiomux_config msm8974_slimbus_config[] __initdata = {
 	},
 };
 
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, add for 14021 sec i2s use */
 static struct gpiomux_setting  mi2s_act_cfg = {
 	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_8MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
+/* xiaojun.lv@PhoneDpt.AudioDrv, 2014/11/03, add for 14021 tas2552 ic's pop noise,
+ * the I2S's data pin need to config to PULL_DOWN */
+static struct gpiomux_setting  mi2s_data_act_cfg = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+
 
 static struct gpiomux_setting  mi2s_sus_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -1095,7 +1149,7 @@ static struct msm_gpiomux_config msm8974_sec_mi2s_configs[] __initdata = {
 		.gpio = 81,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mi2s_sus_cfg,
-			[GPIOMUX_ACTIVE] = &mi2s_act_cfg,
+			[GPIOMUX_ACTIVE] = &mi2s_data_act_cfg,
 		},
 	},
 	{
@@ -1176,7 +1230,7 @@ static struct gpiomux_setting es_suspended_config = {
 #endif
 //liuyan add end
 
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 /*Zhilong.Zhang@OnlineRd.Driver, 2014/08/07, Modify for change the micro SD card detect pin to gpio_52 only for N3*/
 static struct gpiomux_setting sd_card_det_active_config = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -1215,7 +1269,7 @@ static struct msm_gpiomux_config external_pa_configs[] __initdata = {
 
 
 /* OPPO 2014-06-26 ranfei Delete begin for fpc1021 */
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 	{
 		.gpio = 87,         /*hpmic switch*/
 		.settings = {
@@ -1240,7 +1294,7 @@ static struct msm_gpiomux_config external_pa_configs[] __initdata = {
 		},
 	},
 };
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 smartPA use */
 static struct msm_gpiomux_config smart_pa_configs[] __initdata = {
         {
@@ -1311,6 +1365,8 @@ static struct msm_gpiomux_config msm_sensor_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
 		},
 	},
+/* OPPO 2014-08-11 ranfei Delete begin for fpc1021 */
+#if 0	
 	{
 		.gpio = 23, /* FLASH_LED_EN */
 		.settings = {
@@ -1339,6 +1395,8 @@ static struct msm_gpiomux_config msm_sensor_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &cam_settings[1],
 		},
 	},
+#endif
+/* OPPO 2014-08-11 ranfei Delete end */
 	{
 		.gpio = 27, /* OIS_SYNC */
 		.settings = {
@@ -1444,6 +1502,8 @@ static struct msm_gpiomux_config msm_sensor_configs_dragonboard[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
 		},
 	},
+/* OPPO 2014-08-11 ranfei Delete begin for fpc1021 */
+#if 0
 	{
 		.gpio = 23, /* FLASH_LED_EN */
 		.settings = {
@@ -1472,6 +1532,8 @@ static struct msm_gpiomux_config msm_sensor_configs_dragonboard[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &cam_settings[1],
 		},
 	},
+#endif
+/* OPPO 2014-08-11 ranfei Delete end */	
 	{
 		.gpio = 27, /* OIS_SYNC */
 		.settings = {
@@ -1728,7 +1790,7 @@ static struct msm_gpiomux_config ath_gpio_configs[] = {
 	},
 #endif
 /*OPPO yuyi 2013-04-03 delete end for nfc_spi*/
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 sec i2s use */
 	{
 		.gpio = 79,
@@ -1862,7 +1924,7 @@ static struct gpiomux_setting sdc4_data_1_suspend_cfg = {
 };
 
 static struct msm_gpiomux_config msm8974_sdc4_configs[] __initdata = {
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, del for 14021 smartPA need use */
 	{
 		/* DAT3 */
@@ -2002,13 +2064,13 @@ void __init msm_8974_init_gpiomux(void)
 #ifdef VENDOR_EDIT
 //liuyan add 2013-6-9 register gpio
     msm_gpiomux_install(external_pa_configs, ARRAY_SIZE(external_pa_configs));
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, add for 14021 sec i2s and smartPA use */
     msm_gpiomux_install(smart_pa_configs, ARRAY_SIZE(smart_pa_configs));
 	msm_gpiomux_install(msm8974_sec_mi2s_configs,ARRAY_SIZE(msm8974_sec_mi2s_configs));	
 #endif	
 #endif
-#ifdef CONFIG_OPPO_MSM_14021
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
  /*Zhilong.Zhang@OnlineRd.Driver, 2014/08/07, Modify for change the micro SD card detect pin to gpio_52 only for N3*/
 	msm_gpiomux_install(&sd_card_det, 1);
 #endif	
@@ -2055,7 +2117,7 @@ void __init msm_8974_init_gpiomux(void)
 			ARRAY_SIZE(msm_lcd_configs));
 
 /*OPPO yuyi 2014-06-28 delete begin for 14021 nfc_spi*/
-#ifndef CONFIG_OPPO_MSM_14021
+#if (!defined(CONFIG_OPPO_MSM_14021) && !defined(CONFIG_OPPO_MSM_14024))
 	if (of_board_is_rumi())
 		msm_gpiomux_install(msm_rumi_blsp_configs,
 				    ARRAY_SIZE(msm_rumi_blsp_configs));
@@ -2068,6 +2130,11 @@ void __init msm_8974_init_gpiomux(void)
 	if (of_board_is_dragonboard() && machine_is_apq8074())
 		msm_gpiomux_install(apq8074_dragonboard_ts_config,
 			ARRAY_SIZE(apq8074_dragonboard_ts_config));
+#ifdef VENDOR_EDIT
+//rongchun.zhang@EXP.BasicDrv, 2014-12-12 Add for 14091&&14021 TF CARD config
+	msm_gpiomux_install(msm_tf_card_configs,
+				ARRAY_SIZE(msm_tf_card_configs));
+#endif/* VENDOR_EDIT */
 }
 
 static void wcnss_switch_to_gpio(void)

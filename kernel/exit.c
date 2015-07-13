@@ -286,7 +286,7 @@ static bool oppo_is_android_core_group(struct pid *pgrp)
 	struct task_struct *p;
 
 	do_each_pid_task(pgrp, PIDTYPE_PGID, p) {
-		if( !strcmp(p->comm,"zygote") )		
+		if(( !strcmp(p->comm,"zygote") ) || ( !strcmp(p->comm,"main") )	)	
 		{
 			printk("oppo_is_android_core_group: find zygote will be hungup, ignore it \n");
 			return true;

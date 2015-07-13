@@ -779,7 +779,7 @@
 		qcom,cdc-on-demand-supplies = "cdc-vdd-spkdrv";
 	};
 };
-/*
+
 &spi_epm {
 	epm-adc@0 {
 		compatible = "cy,epm-adc-cy8c5568lti-114";
@@ -797,7 +797,7 @@
 				1000>;
 		qcom,channel-type = <0xf0000000>;
 	};
-};*/
+};
 
 &pm8941_lsid1 {
 	qcom,leds@d000 {

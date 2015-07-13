@@ -18,9 +18,12 @@ extern int fpc1020_input_enable(fpc1020_data_t *fpc1020, bool enabled);
 
 extern int fpc1020_input_task(fpc1020_data_t *fpc1020);
 
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for report touch down and up
 extern void fpc1020_report_finger_down(fpc1020_data_t *fpc1020);
 
 extern void fpc1020_report_finger_up(fpc1020_data_t *fpc1020);
+#endif /* VENDOR_EDIT */
 
 #endif /* LINUX_SPI_FPC1020_NAV_H */
 

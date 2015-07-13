@@ -604,6 +604,16 @@ static int set_config(struct usb_composite_dev *cdev,
 	unsigned		power = gadget_is_otg(gadget) ? 8 : 100;
 	int			tmp;
 
+	/*
+	 * ignore 2nd time SET_CONFIGURATION
+	 * only for same config value twice.
+	 */
+	if (cdev->config && (cdev->config->bConfigurationValue == number)) {
+		DBG(cdev, "already in the same config with value %d\n",
+				number);
+		return 0;
+	}
+
 	if (number) {
 		list_for_each_entry(c, &cdev->configs, list) {
 			if (c->bConfigurationValue == number) {
@@ -1230,7 +1240,7 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		 * upon set config#1. Call set_alt for non-zero
 		 * alternate setting.
 		 */
-		if (!w_value && cdev->config) {
+		if (!w_value && cdev->config && !f->get_alt) {
 			value = 0;
 			break;
 		}

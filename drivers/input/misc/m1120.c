@@ -37,44 +37,41 @@
 #include <linux/proc_fs.h> 
 static struct proc_dir_entry *rotordir = NULL;
 static char* rotor_node_name = "cam_status";
+static char* whether_block = "cam_block";
 
-#ifdef M1120_STATUS_SIGNAL
-#include <linux/fs.h>
-static struct fasync_struct *async_queue = NULL;
-#endif
-
-/* ********************************************************* */
-/* customer config */ 
-/* ********************************************************* */
-#define M1120_DBG_ENABLE					// for debugging
 #define M1120_DETECTION_MODE				M1120_DETECTION_MODE_INTERRUPT
 #define M1120_INTERRUPT_TYPE				M1120_VAL_INTSRS_INTTYPE_BESIDE
 #define M1120_SENSITIVITY_TYPE				M1120_VAL_INTSRS_SRS_0_017mT
-#define M1120_PERSISTENCE_COUNT				M1120_VAL_PERSINT_COUNT(2)
-#define M1120_OPERATION_FREQUENCY			M1120_VAL_OPF_FREQ_10HZ
+#define M1120_PERSISTENCE_COUNT				M1120_VAL_PERSINT_COUNT
+#define M1120_OPERATION_FREQUENCY			M1120_VAL_OPF_FREQ_80HZ
 #define M1120_OPERATION_RESOLUTION			M1120_VAL_OPF_BIT_10
 #define M1120_DETECT_RANGE_HIGH				(10)
-#define M1120_DETECT_RANGE_LOW				(-10)
-#define M1120_RESULT_STATUS_A				(0x01)	// result status A
-#define M1120_RESULT_STATUS_B				(0x02)	// result status B
-#define M1120_EVENT_TYPE					EV_KEY
-#define M1120_EVENT_CODE					KEY_F2
-#define M1120_EVENT_DATA_CAPABILITY_MIN		(-32768)
-#define M1120_EVENT_DATA_CAPABILITY_MAX		(32767)
+#define M1120_DETECT_RANGE_LOW				(0)
 
-/* ********************************************************* */
-/* debug macro */
-/* ********************************************************* */
+#define M1120_EVENT_TYPE					EV_KEY
+#define M1120_EVENT_HALL_STATE		    	KEY_F2
+#define M1120_EVENT_CHANGE_SPEED  			KEY_F7
+#define M1120_EVENT_FORWARD_BLOCK           KEY_F8
+#define M1120_EVENT_BACKWARD_BLOCK          KEY_F9
+
+#define M1120_INFO    3
+#define M1120_DEBUG   4
+
+static int mll20_log_level = M1120_INFO;
+#define printk_m1120(level, ...) \
+    do { \
+        if (mll20_log_level >= (level)) \
+        printk(__VA_ARGS__); \
+    } while (0) 
+
 #ifdef M1120_DBG_ENABLE
 #define dbg(fmt, args...)  printk("[M1120-DBG] %s(%04d) : " fmt "\n", __func__, __LINE__, ##args)
 #define dbgn(fmt, args...)  printk(fmt, ##args)
 #else
 #define dbg(fmt, args...)   
 #define dbgn(fmt, args...)  
-#endif // M1120_DBG_ENABLE
-#define dbg_func_in()       dbg("[M1120-DBG-F.IN] %s\n", __func__)
-#define dbg_func_out()      dbg("[M1120-DBG-F.OUT] %s\n", __func__)
-#define dbg_line()          dbg("[LINE] %d(%s)\n", __LINE__, __func__)
+#endif 
+
 /* ********************************************************* */
 /* error display macro */
 /* ********************************************************* */
@@ -82,56 +79,35 @@ static struct fasync_struct *async_queue = NULL;
     dev_err(pdev, "[M1120-ERR] %s(L%04d) : " fmt "\n", __func__, __LINE__, ##args) 
 #define mxinfo(pdev, fmt, args...)			\
     dev_info(pdev, "[M1120-INFO] %s(L%04d) : " fmt "\n", __func__, __LINE__, ##args) 
-/* ********************************************************* */
-/* static variable */
-/* ********************************************************* */
-static m1120_data_t *p_m1120_data = NULL;
-static int g_is_back = -1;
 
+static m1120_data_t *p_m1120_data = NULL;
+static int rear_state = -1;
+static bool m1120_i2c_suspend = 0;
+    
 // for DTS
 static struct of_device_id dhall_device_id[] = {
     {.compatible = "magna,dhall",},
     {},
 };
 
-/* ********************************************************* */
-/* function protyps */
-/* ********************************************************* */
-/* i2c interface */
+
 static int	m1120_i2c_read(struct i2c_client *client, u8 reg, u8* rdata, u8 len);
 static int	m1120_i2c_get_reg(struct i2c_client *client, u8 reg, u8* rdata);
 static int	m1120_i2c_write(struct i2c_client *client, u8 reg, u8* wdata, u8 len);
 static int	m1120_i2c_set_reg(struct i2c_client *client, u8 reg, u8 wdata);
-/* vdd / vid power control */
 static int m1120_set_power(struct device *dev, bool on);
-/* scheduled work */
 static void m1120_work_func(struct work_struct *work);
-/* interrupt handler */
 static irqreturn_t m1120_irq_handler(int irq, void *dev_id);
-/* configuring or getting configured status */
 static void m1120_get_reg(struct device *dev, int* regdata);
 static void m1120_set_reg(struct device *dev, int* regdata);
-static int	m1120_get_enable(struct device *dev);
-static void	m1120_set_enable(struct device *dev, int enable);
-static int	m1120_get_delay(struct device *dev);
-static void	m1120_set_delay(struct device *dev, int delay);
-static int	m1120_get_debug(struct device *dev);
-static void	m1120_set_debug(struct device *dev, int debug);
 static int	m1120_clear_interrupt(struct device *dev);
 static int	m1120_update_interrupt_threshold(struct device *dev);
 static int	m1120_set_operation_mode(struct device *dev, int mode);
 static int	m1120_set_detection_mode(struct device *dev, u8 mode);
-static int	m1120_init_device(struct device *dev);
-static int	m1120_reset_device(struct device *dev);
-static int	m1120_get_calibrated_data(struct device *dev, int* data);
 static int	m1120_measure(m1120_data_t *p_data, short *raw);
-/* ********************************************************* */
+static int  m1120_frequency_set(struct device *dev, int frequency);
 
-/* extern func for camera */
-int getCameraStatusByDhall(void)
-{
-    return g_is_back;  // 1: back   0: front   -1:invalid
-}
+/* ********************************************************* */
 
 /* ********************************************************* */
 /* functions for i2c interface */
@@ -310,63 +286,310 @@ static int m1120_set_power(struct device *dev, bool on)
 }
 /* ********************************************************* */
 
-/* ********************************************************* */
-/* functions for scheduling */
+int start_motor_flag = 0;               // when motor started, we begin to detect whether motor block
+int direction_for_hall = 0;             // 1: motor forward(to 206 degree), 0: motor backward(to 0 degree)
+extern void start_motor(void);
+extern void stop_motor(void);
+extern void motor_speed_set(int speed);
+
+static int detection_count = 0;         // after motor started , we should wait for sometime to detect
+
+static int change_speed_flag = 0;       // change speed 
+static int motor_start_speed = 0;       // motor start speed
+static int schedule_work_delay = 0;     // different motor speed, different schedule work(different timer)
+static int poll_time = 0;               // timer count
+static int data_trend = 2;              // 1 : down ; 2 : up ; 0 : nothing.
+
+static void m1120_motor_stop_hanle(bool need_stop_motor)
+{
+    if(need_stop_motor) 
+        stop_motor();
+    
+    // when stop motor, change to interrupt mode
+    p_m1120_data->irq_source = 3;
+    //m1120_frequency_set(&p_m1120_data->client->dev,M1120_VAL_OPF_FREQ_10HZ);
+    m1120_set_detection_mode(&p_m1120_data->client->dev, M1120_DETECTION_MODE_INTERRUPT);
+    
+    poll_time = 0;
+    detection_count = 0;
+}
+
+static void m1120_report_forward_block(void)
+{
+    input_report_key(p_m1120_data->input_dev, M1120_EVENT_FORWARD_BLOCK, 1);
+    input_sync(p_m1120_data->input_dev);
+    input_report_key(p_m1120_data->input_dev, M1120_EVENT_FORWARD_BLOCK, 0);
+    input_sync(p_m1120_data->input_dev); 
+}
+
+static void m1120_report_backward_block(void)
+{
+    input_report_key(p_m1120_data->input_dev, M1120_EVENT_BACKWARD_BLOCK, 1);
+    input_sync(p_m1120_data->input_dev);
+    input_report_key(p_m1120_data->input_dev, M1120_EVENT_BACKWARD_BLOCK, 0);
+    input_sync(p_m1120_data->input_dev);    
+}
+
+static void m1120_change_speed(int speed)
+{
+    stop_motor();
+    motor_speed_set(speed);
+    start_motor();
+}
+
+static void cam_block_detect(short *raw, int speed_start)
+{
+    static int zero_speed_delay_count = 0;
+    static int four_speed_delay_count_206 = 0;
+    static int six_speed_delay_count = 0;
+
+    poll_time ++;
+    
+    if(start_motor_flag == 1)
+        detection_count ++; 
+
+    //printk_m1120(M1120_DEBUG, "count = %3d, raw[0] = %4d, raw[1] = %4d, raw[2] = %4d, raw[3] = %4d\n", detection_count, raw[0], raw[1], raw[2],raw[3]);
+
+    if(detection_count > 2)
+    {   
+        if((start_motor_flag == 0)&&(change_speed_flag == 0))
+        {
+            printk("motor stop, dhall change to interrupt mode.\n");
+            
+            m1120_motor_stop_hanle(false);
+
+            return ;
+        }
+    
+        switch(speed_start)
+        {
+            printk("%s, speed_start = %d\n", __func__, speed_start);
+        
+            case 0:
+                if(direction_for_hall == 1) // motor forward
+                {
+                    if(  (raw[1] - raw[0] > 4)
+                      )
+                    {
+                        printk("forward down detect, cam block ! speed_start = %d\n", speed_start);
+                       
+                        m1120_motor_stop_hanle(true);
+
+                        m1120_report_forward_block();
+                    }
+                }
+                else if (direction_for_hall == 0) // motor backward 
+                {
+                    if((raw[0] < -50)&&(change_speed_flag == 0))
+                    {
+                        printk("change motor speed .\n");
+
+                        change_speed_flag = 1;
+                        
+                        m1120_change_speed(2);
+                    }
+
+                    if( (abs(raw[1] - raw[0]) < 3)  
+                        &&(raw[0] < -50)
+                        &&(raw[1] < -50)
+                      )
+                    {
+                        zero_speed_delay_count ++;
+                    }
+                    else
+                    {
+                        zero_speed_delay_count = 0; // continuous 
+                    }
+                    
+                    if(zero_speed_delay_count == 3)
+                    {
+                        zero_speed_delay_count = 0;
+                        
+                        printk("backward down detect, cam block ! speed_start = %d\n", speed_start);
+                        
+                        m1120_motor_stop_hanle(true);
+                    }
+                } 
+                break;
+                
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+                if(direction_for_hall == 1) // motor forward
+                {
+                    if( (abs(raw[1] - raw[0]) < 3)
+                        &&(abs(raw[2] - raw[0]) < 3)
+                        &&(raw[2] > 0) 
+                      )
+                    {
+                        four_speed_delay_count_206 ++;
+                    }
+                    else
+                    {
+                        four_speed_delay_count_206 = 0;
+                    }
+                    
+                    if( (four_speed_delay_count_206 >= 4)
+                      )
+                    {
+                        four_speed_delay_count_206 = 0;
+                        
+                        printk("206 degree block ! speed_start = %d\n", speed_start);
+
+                        m1120_motor_stop_hanle(true);
+                        
+                        m1120_report_forward_block();                     
+                    }
+                    
+                    if(  (raw[1] - raw[0] > 4)
+                      )
+                    {
+                        data_trend = 1; // down trend
+                    }    
+                        
+                    if( (abs(raw[1] - raw[0]) <= 3)
+                        &&(data_trend == 1)
+                      )
+                    {
+                        data_trend = 0;
+
+                        four_speed_delay_count_206 = 0;
+
+                        printk("forward down detect, cam block ! speed_start = %d\n", speed_start);
+                       
+                        m1120_motor_stop_hanle(true);
+                       
+                        m1120_report_forward_block();                     
+                    }
+                }
+                else if (direction_for_hall == 0) // motor backward 
+                {
+                    if( (abs(raw[1] - raw[0]) < 4) 
+                        &&(abs(raw[2] - raw[1]) < 4)
+                        &&(raw[0] < -70)
+                        &&(raw[1] < -70)
+                        &&(raw[2] < -70)
+                      )
+                    {
+                        printk("backward down detect, cam block ! speed_start = %d\n", speed_start);
+                        
+                        m1120_motor_stop_hanle(true);
+
+                        m1120_report_backward_block();
+                    }
+                }
+                break;
+
+            case 5:
+            case 6:
+                if(direction_for_hall == 1) // motor forward
+                {
+                    if( (raw[0] < raw[1])
+                        &&(raw[0] > 0)
+                      )
+                    {
+                        six_speed_delay_count ++;
+                    }
+                    else
+                    {
+                        six_speed_delay_count = 0;
+                    }
+                    
+                    if(six_speed_delay_count == 4)
+                    {
+                        six_speed_delay_count = 0;
+                        
+                        printk("forward down detect, cam block ! speed_start = %d\n", speed_start);
+
+                        m1120_motor_stop_hanle(true);
+
+                        m1120_report_forward_block();                                          
+                    }
+                }                
+                break;
+            case 7:                
+            case 8:
+                break;
+        }
+    }    
+}
+
 /* ********************************************************* */
 static void m1120_work_func(struct work_struct *work)
 {
     m1120_data_t* p_data = container_of((struct delayed_work *)work, m1120_data_t, work);
-    unsigned long delay = msecs_to_jiffies(m1120_get_delay(&p_data->client->dev));
-    short raw = -1024;
-    int err = 0;
+    static short raw[4] = {-1024};
 
-    printk("%s enter\n",__func__);
-
-    msleep(30);
-    err = m1120_measure(p_data, &raw);
-    if (err != 0)
+    if(m1120_i2c_suspend == 1)
     {
-        printk("%s read adc err !!!\n",__func__);
-        msleep(10);
-        if (p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT)
-        {
-            enable_irq(p_m1120_data->irq);  
-        }
-        return;
+        return ;
     }
+    
+    raw[3] = raw[2];
+    raw[2] = raw[1];
+    raw[1] = raw[0];
+    m1120_measure(p_data, &raw[0]);
 
-    g_is_back = !g_is_back;
-
-    input_report_key(p_data->input_dev, M1120_EVENT_CODE, 1);
-    input_sync(p_data->input_dev);
-    input_report_key(p_data->input_dev, M1120_EVENT_CODE, 0);
-    input_sync(p_data->input_dev);
-
-    if( p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) 
+    if(p_m1120_data->irq_source == 1)  // interrupt mode
     {
-        printk("%s is_back:%d cur raw:%d \n", __func__, g_is_back, raw);
+        rear_state = !rear_state;
 
+        p_m1120_data->last_state = rear_state;
+        
+        //printk("Interrupt report! rear_state = %d, cur_adc = %d\n", rear_state, raw[0]);
+        
         m1120_update_interrupt_threshold(&p_data->client->dev);
-#ifdef M1120_STATUS_SIGNAL
-        if (async_queue)
-            kill_fasync(&async_queue, SIGIO, POLL_IN); 
-#endif
+
         enable_irq(p_m1120_data->irq);
+
+        input_report_key(p_data->input_dev, M1120_EVENT_HALL_STATE, 1);
+        input_sync(p_data->input_dev);
+        input_report_key(p_data->input_dev, M1120_EVENT_HALL_STATE, 0);
+        input_sync(p_data->input_dev);           
     } 
-    else 
+    else if(p_m1120_data->irq_source == 0)// polling mode
     {
-        schedule_delayed_work(&p_data->work, delay);
+        cam_block_detect(raw, motor_start_speed);
+    
+        if(raw[0] > p_m1120_data->thrhigh)
+        {
+            rear_state = 0;
+        }
+        else if (raw[0] < p_m1120_data->thrlow)
+        {
+            rear_state = 1;
+        }
+
+        if(rear_state != p_m1120_data->last_state)
+        {
+            p_m1120_data->last_state = rear_state;
+
+            m1120_update_interrupt_threshold(&p_m1120_data->client->dev);
+
+            //printk("Polling report ! rear_state = %d\n", rear_state);
+
+            input_report_key(p_data->input_dev, M1120_EVENT_HALL_STATE, 1);
+            input_sync(p_data->input_dev);
+            input_report_key(p_data->input_dev, M1120_EVENT_HALL_STATE, 0);
+            input_sync(p_data->input_dev);           
+        }    
+
+        schedule_delayed_work(&p_data->work, msecs_to_jiffies(schedule_work_delay));
     }
 }
 
 /* functions for interrupt handler */
 static irqreturn_t m1120_irq_handler(int irq, void *dev_id)
 {
-    printk(" %s  \n ", __FUNCTION__);
+    //printk("%s\n ", __FUNCTION__);
     
     disable_irq_nosync(p_m1120_data->irq);
+    
     if(p_m1120_data != NULL)
     {
+        p_m1120_data->irq_source = 1;   //delayed work for irq
+        
         schedule_delayed_work(&p_m1120_data->work, 0);
     }
     return IRQ_HANDLED;
@@ -400,84 +623,6 @@ static void m1120_set_reg(struct device *dev, int* regdata)
     *regdata |= (err==0) ? 0x0000 : 0xFF00;
 }
 
-
-static int m1120_get_enable(struct device *dev)
-{
-    struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-
-    return atomic_read(&p_data->atm.enable);
-}
-
-static void m1120_set_enable(struct device *dev, int enable)
-{
-    struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-    int delay = m1120_get_delay(dev);
-
-    mutex_lock(&p_data->mtx.enable);
-
-    if (enable) {                   /* enable if state will be changed */
-        if (!atomic_cmpxchg(&p_data->atm.enable, 0, 1)) {
-            m1120_set_operation_mode(&p_m1120_data->client->dev, OPERATION_MODE_MEASUREMENT);
-            schedule_delayed_work(&p_data->work, msecs_to_jiffies(delay));
-        }
-    } else {                        /* disable if state will be changed */
-        if (atomic_cmpxchg(&p_data->atm.enable, 1, 0)) {
-            cancel_delayed_work_sync(&p_data->work);
-            m1120_set_operation_mode(&p_m1120_data->client->dev, OPERATION_MODE_POWERDOWN);
-        }
-    }
-    atomic_set(&p_data->atm.enable, enable);
-
-    mutex_unlock(&p_data->mtx.enable);
-}
-
-static int m1120_get_delay(struct device *dev)
-{
-    struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-
-    int delay = 0;
-
-    delay = atomic_read(&p_data->atm.delay);
-
-    return delay;
-}
-
-static void m1120_set_delay(struct device *dev, int delay)
-{
-    struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-
-    if(delay<M1120_DELAY_MIN) delay = M1120_DELAY_MIN;
-    atomic_set(&p_data->atm.delay, delay);
-
-    mutex_lock(&p_data->mtx.enable);
-
-    if (m1120_get_enable(dev)) {
-        cancel_delayed_work_sync(&p_data->work);
-        schedule_delayed_work(&p_data->work, msecs_to_jiffies(delay));
-    }
-
-    mutex_unlock(&p_data->mtx.enable);
-}
-
-static int m1120_get_debug(struct device *dev)
-{
-    struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-
-    return atomic_read(&p_data->atm.debug);
-}
-
-static void m1120_set_debug(struct device *dev, int debug)
-{
-    struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-
-    atomic_set(&p_data->atm.debug, debug);
-}
 
 static int m1120_clear_interrupt(struct device *dev)
 {
@@ -544,45 +689,38 @@ static int m1120_update_interrupt_threshold(struct device *dev)
     struct i2c_client *client = to_i2c_client(dev);
     m1120_data_t *p_data = i2c_get_clientdata(client);
     u8 lthh, lthl, hthh, hthl;
-    //short raw;
     int err;
-    printk("%s  low:%d   high:%d  \n", __FUNCTION__, p_data->thrlow, p_data->thrhigh);
+    
+    //printk("%s, value_30degree:%d, low:%d, high:%d  \n", __FUNCTION__, p_m1120_data->value_30degree, p_data->thrlow, p_data->thrhigh);
+    
     err = m1120_clear_interrupt(dev);
-    //if(err) return err;
 
-    if(p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) 
+    if(p_data->reg.map.intsrs & M1120_VAL_INTSRS_INTTYPE_BESIDE) 
     {
-        if(p_data->reg.map.intsrs & M1120_VAL_INTSRS_INTTYPE_BESIDE) 
+        if(rear_state == 0) 
         {
-            if(g_is_back == 1) 
-            {
-                m1120_convdata_short_to_2byte(p_data->reg.map.opf, 511, &hthh, &hthl);
-                m1120_convdata_short_to_2byte(p_data->reg.map.opf, p_data->thrlow, &lthh, &lthl);
-            } 
-            else
-            {
-                m1120_convdata_short_to_2byte(p_data->reg.map.opf, p_data->thrhigh, &hthh, &hthl);
-                m1120_convdata_short_to_2byte(p_data->reg.map.opf, -512, &lthh, &lthl);
-            }               
+            m1120_convdata_short_to_2byte(p_data->reg.map.opf, 511, &hthh, &hthl);
+            m1120_convdata_short_to_2byte(p_data->reg.map.opf, p_data->thrlow, &lthh, &lthl);
         } 
-        else 
+        else
         {
-            // to do another condition
+            m1120_convdata_short_to_2byte(p_data->reg.map.opf, p_data->thrhigh, &hthh, &hthl);
+            m1120_convdata_short_to_2byte(p_data->reg.map.opf, -512, &lthh, &lthl);
         }
-
-        err = m1120_i2c_set_reg(p_data->client, M1120_REG_HTHH, hthh);
-        if(err) return err;
-        err = m1120_i2c_set_reg(p_data->client, M1120_REG_HTHL, hthl);
-        if(err) return err;
-        err = m1120_i2c_set_reg(p_data->client, M1120_REG_LTHH, lthh);
-        if(err) return err;
-        err = m1120_i2c_set_reg(p_data->client, M1120_REG_LTHL, lthl);
-        if(err) return err;
-
-        if(m1120_get_debug(dev)) {
-            mxinfo(&client->dev, "threshold : (0x%02X%02X, 0x%02X%02X)\n", hthh, hthl, lthh, lthl);
-        }
+    } 
+    else 
+    {
+        // to do another condition
     }
+
+    err = m1120_i2c_set_reg(p_data->client, M1120_REG_HTHH, hthh);
+    if(err) return err;
+    err = m1120_i2c_set_reg(p_data->client, M1120_REG_HTHL, hthl);
+    if(err) return err;
+    err = m1120_i2c_set_reg(p_data->client, M1120_REG_LTHH, lthh);
+    if(err) return err;
+    err = m1120_i2c_set_reg(p_data->client, M1120_REG_LTHL, lthl);
+    if(err) return err;
 
     return err;
 }
@@ -590,30 +728,31 @@ static int m1120_update_interrupt_threshold(struct device *dev)
 static int m1120_set_operation_mode(struct device *dev, int mode)
 {
     struct i2c_client *client = to_i2c_client(dev);
-    m1120_data_t *p_data = i2c_get_clientdata(client);
-    u8 opf = p_data->reg.map.opf;
+    u8 opf = M1120_OPERATION_RESOLUTION;
     int ret = -1;
 
     switch(mode) {
         case OPERATION_MODE_POWERDOWN:
             opf &= (0xFF - M1120_VAL_OPF_HSSON_ON);
             ret = m1120_i2c_set_reg(client, M1120_REG_OPF, opf);
-            mxinfo(&client->dev, "operation mode was chnaged to OPERATION_MODE_POWERDOWN");
+            mxinfo(&client->dev, "operation mode :OPERATION_MODE_POWERDOWN");
             break;
         case OPERATION_MODE_MEASUREMENT:
             opf &= (0xFF - M1120_VAL_OPF_EFRD_ON);
             opf |= M1120_VAL_OPF_HSSON_ON;
             ret = m1120_i2c_set_reg(client, M1120_REG_OPF, opf);
-            mxinfo(&client->dev, "operation mode was chnaged to OPERATION_MODE_MEASUREMENT");
+            mxinfo(&client->dev, "operation mode :OPERATION_MODE_MEASUREMENT");
             break;
         case OPERATION_MODE_FUSEROMACCESS:
             opf |= M1120_VAL_OPF_EFRD_ON;
             opf |= M1120_VAL_OPF_HSSON_ON;
             ret = m1120_i2c_set_reg(client, M1120_REG_OPF, opf);
-            mxinfo(&client->dev, "operation mode was chnaged to OPERATION_MODE_FUSEROMACCESS");
+            mxinfo(&client->dev, "operation mode :OPERATION_MODE_FUSEROMACCESS");
             break;
     }
 
+    printk("%s, opf = 0x%x\n", __func__, opf);
+    
     return ret;
 }
 
@@ -624,39 +763,39 @@ static int m1120_set_detection_mode(struct device *dev, u8 mode)
     u8 data;
     int err = 0;
 
+    printk("m1120 detection mode : %s\n", (mode == 0)? "POLLING":"INTERRUPT");
+    
     if(mode & M1120_DETECTION_MODE_INTERRUPT) 
     {
-        /* config threshold */
-        m1120_update_interrupt_threshold(dev);
-
         if(!p_data->irq_enabled) 
         {
-            /* write intsrs */
             data = p_data->reg.map.intsrs | M1120_DETECTION_MODE_INTERRUPT;
             err = m1120_i2c_set_reg(p_data->client, M1120_REG_INTSRS, data);
             if(err) return err;
+
             /* enable irq */
-            err = request_irq(p_data->irq, &m1120_irq_handler, IRQ_TYPE_LEVEL_LOW, M1120_DRIVER_NAME, 0);//M1120_IRQ_NAME
-            
-            printk("%s  request irq ok  err:%d \n", __FUNCTION__, err);
-            
+            err = request_irq(p_data->irq, &m1120_irq_handler, IRQ_TYPE_LEVEL_LOW, M1120_DRIVER_NAME, 0);
+            if(err < 0)
+                printk("%s  request irq failed, err:%d \n", __FUNCTION__, err);        
+
             m1120_clear_interrupt(dev);
+            
             enable_irq_wake(p_data->irq);
+            
             p_data->irq_enabled = 1;
         }
     } 
     else 
     {
-        if(p_data->irq_enabled) 
+        if(p_data->irq_enabled)
         {
-            /* write intsrs */
             data = p_data->reg.map.intsrs & (0xFF - M1120_DETECTION_MODE_INTERRUPT);
             err = m1120_i2c_set_reg(p_data->client, M1120_REG_INTSRS, data);
             if(err) return err;
 
-            /* disable irq */
             disable_irq(p_data->irq);
             free_irq(p_data->irq, NULL);
+            
             p_data->irq_enabled = 0;
         }
     }
@@ -664,39 +803,28 @@ static int m1120_set_detection_mode(struct device *dev, u8 mode)
     return 0;
 }
 
-static int m1120_init_device(struct device *dev)
+static int m1120_frequency_set(struct device *dev, int frequency)
 {
+    int	err = 0;
+    u8 rdata = 0;
     struct i2c_client *client = to_i2c_client(dev);
     m1120_data_t *p_data = i2c_get_clientdata(client);
-    int err = -1;
 
-    /* (1) vdd and vid power up */
-    err = m1120_set_power(dev, 1);
-    if(err) {
-        mxerr(&client->dev, "m1120 power-on was failed (%d)", err);
+    if( (p_data == NULL) || (p_data->client == NULL) ) return -ENODEV;
+
+    m1120_i2c_get_reg(p_data->client, M1120_REG_OPF, &rdata);
+
+    rdata &= 0x0F;
+    rdata |= frequency;
+
+    printk("M1120_REG_OPF register : 0x%x\n", rdata);
+    
+    err = m1120_i2c_set_reg(p_data->client, M1120_REG_OPF, rdata);
+    if(err) 
+    {
+        mxerr(&client->dev, "sw-reset was failed(%d)", err);
         return err;
     }
-
-    /* (2) init variables */
-    atomic_set(&p_data->atm.enable, 0);
-    atomic_set(&p_data->atm.delay, M1120_DELAY_MIN);
-    atomic_set(&p_data->atm.debug, 1);
-    p_data->calibrated_data = 0;
-    p_data->last_data = 0;
-    p_data->irq_enabled = 0;
-    p_data->thrhigh = M1120_DETECT_RANGE_HIGH;
-    p_data->thrlow = M1120_DETECT_RANGE_LOW;
-    m1120_set_delay(&client->dev, M1120_DELAY_MAX);
-    m1120_set_debug(&client->dev, 0);
-
-    /* (3) reset registers */
-    err = m1120_reset_device(dev);
-    if(err) {
-        mxerr(&client->dev, "m1120_reset_device was failed (%d)", err);
-        return err;
-    }
-
-    mxinfo(&client->dev, "initializing device was success");
 
     return 0;
 }
@@ -712,7 +840,8 @@ static int m1120_reset_device(struct device *dev)
     if( (p_data == NULL) || (p_data->client == NULL) ) return -ENODEV;
 
     err = m1120_i2c_set_reg(p_data->client, M1120_REG_SRST, M1120_VAL_SRST_RESET);
-    if(err) {
+    if(err) 
+    {
         mxerr(&client->dev, "sw-reset was failed(%d)", err);
         return err;
     }
@@ -720,49 +849,62 @@ static int m1120_reset_device(struct device *dev)
     dbg("wait 5ms after vdd power up");
 
     err = m1120_i2c_get_reg(p_data->client, M1120_REG_DID, &id);
-    if (err < 0) return err;
-    if (id != M1120_VAL_DID) {
+    if (err < 0) 
+        return err;
+    if (id != M1120_VAL_DID) 
+    {
         mxerr(&client->dev, "current device id(0x%02X) is not M1120 device id(0x%02X)", id, M1120_VAL_DID);
         return -ENXIO;
     }
 
-    printk("%s dev id:%d \n", __FUNCTION__, id);
-
-    g_is_back = 1;
-
     p_data->reg.map.persint = M1120_PERSISTENCE_COUNT;
     p_data->reg.map.intsrs = M1120_DETECTION_MODE | M1120_SENSITIVITY_TYPE;
-    if(p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) {
+    if(p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) 
+    {
         p_data->reg.map.intsrs |= M1120_INTERRUPT_TYPE;
     }
-    p_data->reg.map.opf = M1120_OPERATION_FREQUENCY | M1120_OPERATION_RESOLUTION;
 
-    err = m1120_set_operation_mode(dev, OPERATION_MODE_MEASUREMENT);//OPERATION_MODE_POWERDOWN  
-    if(err) {
-        mxerr(&client->dev, "m1120_set_detection_mode was failed(%d)", err);
+    err = m1120_set_operation_mode(dev, OPERATION_MODE_MEASUREMENT);
+    if(err) 
+    {
+        mxerr(&client->dev, "m1120_set_operation_mode was failed(%d)", err);
         return err;
-    }
+    }    
 
+    m1120_frequency_set(dev,M1120_OPERATION_FREQUENCY);
+   
     return err;
 }
 
-static int m1120_get_calibrated_data(struct device *dev, int* data)
+static int m1120_init_device(struct device *dev)
 {
     struct i2c_client *client = to_i2c_client(dev);
     m1120_data_t *p_data = i2c_get_clientdata(client);
+    int err = -1;
 
-    int err = 0;
-    short adc = 0;
+    err = m1120_set_power(dev, 1);
+    if(err) {
+        mxerr(&client->dev, "m1120 power-on was failed (%d)", err);
+        return err;
+    }
 
-    if(p_data == NULL) 
-        err = -ENODEV;
+    p_data->irq_enabled = 0;
+    p_data->irq_source = 1;
+    p_data->thrhigh = M1120_DETECT_RANGE_HIGH;
+    p_data->thrlow = M1120_DETECT_RANGE_LOW;
+    p_data->last_state = 1;
+    
+    rear_state = 1;
 
-    msleep(M1120_DELAY_FOR_READY);
-    err = m1120_measure(p_data, &adc);
+    err = m1120_reset_device(dev);
+    if(err) {
+        mxerr(&client->dev, "m1120_reset_device was failed (%d)", err);
+        return err;
+    }
 
-    *data = p_data->calibrated_data = adc;
+    mxinfo(&client->dev, "initializing device was success");
 
-    return err;
+    return 0;
 }
 
 static int m1120_measure(m1120_data_t *p_data, short *raw)
@@ -780,15 +922,12 @@ static int m1120_measure(m1120_data_t *p_data, short *raw)
     if(buf[0] & 0x01) {
         adc = m1120_convdata_2byte_to_short(p_data->reg.map.opf, buf[2], buf[1]);
     } else {
-        mxerr(&client->dev, "st1(0x%02X) is not DRDY", buf[0]);
+        //printk("m1120: st1(0x%02X) is not DRDY.\n", buf[0]);
+       
         err = -1;
     }
 
     *raw = adc;
-
-    if(m1120_get_debug(&client->dev)) {
-        printk("raw data (%d)\n", *raw);
-    }
 
     return err;
 }
@@ -809,7 +948,14 @@ static int m1120_input_dev_init(m1120_data_t *p_data)
     dev->id.bustype = BUS_I2C;
 
     input_set_drvdata(dev, p_data);
-    input_set_capability(dev, M1120_EVENT_TYPE, M1120_EVENT_CODE);
+//    input_set_capability(dev, M1120_EVENT_TYPE, M1120_EVENT_HALL_STATE);
+//    input_set_capability(dev, M1120_EVENT_TYPE, M1120_EVENT_CHANGE_SPEED);
+
+    set_bit(M1120_EVENT_TYPE, dev->evbit);
+    set_bit(M1120_EVENT_HALL_STATE, dev->keybit);
+    set_bit(M1120_EVENT_CHANGE_SPEED, dev->keybit);
+    set_bit(M1120_EVENT_FORWARD_BLOCK, dev->keybit);
+    set_bit(M1120_EVENT_BACKWARD_BLOCK, dev->keybit);
 
     err = input_register_device(dev);
     if (err < 0) {
@@ -830,17 +976,6 @@ static void m1120_input_dev_terminate(m1120_data_t *p_data)
     input_free_device(dev);
 }
 
-
-#ifdef M1120_STATUS_SIGNAL
-
-static int pswitch_fasync(int fd, struct file * filp, int on) 
-{
-    return fasync_helper(fd, filp, on, &async_queue);
-}
-
-#endif
-
-
 /* *************************************************
    misc device interface
  ************************************************* */
@@ -860,9 +995,6 @@ static struct file_operations m1120_misc_dev_fops =
     .release = m1120_misc_dev_release,
     .read = m1120_misc_dev_read,
     .write = m1120_misc_dev_write,
-#ifdef M1120_STATUS_SIGNAL    
-    .fasync = pswitch_fasync,    
-#endif	
     .poll = m1120_misc_dev_poll,
 };
 
@@ -880,9 +1012,6 @@ static int m1120_misc_dev_open( struct inode* inode, struct file* file)
 
 static int m1120_misc_dev_release( struct inode* inode, struct file* file)
 {
-#ifdef M1120_STATUS_SIGNAL
-    fasync_helper(-1, file, 0, &async_queue);
-#endif
     return 0;
 }
 
@@ -893,53 +1022,36 @@ static long m1120_misc_dev_ioctl(struct file* file, unsigned int cmd, unsigned l
     void __user *argp = (void __user *)arg;
     int kbuf = 0;
     int caldata = 0;
+    short raw = 0;
     RotorDetectionCaliData  cali_data;
 
     switch( cmd ) {
-        case RHALL_IOCTL_SET_ENABLE:
-            if(copy_from_user(&kbuf, argp, sizeof(kbuf))) return -EFAULT;
-            dbg("RHALL_IOCTL_SET_ENABLE(%d)\n", kbuf);
-            m1120_set_enable(&p_m1120_data->client->dev, kbuf);
-            break;
-        case RHALL_IOCTL_GET_ENABLE:
-            kbuf = m1120_get_enable(&p_m1120_data->client->dev);
-            dbg("RHALL_IOCTL_GET_ENABLE(%d)\n", kbuf);
-            if(copy_to_user(argp, &kbuf, sizeof(kbuf))) return -EFAULT;
-            break;
-        case RHALL_IOCTL_SET_DELAY:
-            if(copy_from_user(&kbuf, argp, sizeof(kbuf))) return -EFAULT;
-            dbg("RHALL_IOCTL_SET_DELAY(%d)\n", kbuf);
-            m1120_set_delay(&p_m1120_data->client->dev, kbuf);
-            break;
-        case RHALL_IOCTL_GET_DELAY:
-            kbuf = m1120_get_delay(&p_m1120_data->client->dev);
-            dbg("RHALL_IOCTL_GET_DELAY(%d)\n", kbuf);
-            if(copy_to_user(argp, &kbuf, sizeof(kbuf))) return -EFAULT;
-            break;
-        case RHALL_IOCTL_SET_CALIBRATION:               //use
-            dbg("RHALL_IOCTL_SET_CALIBRATION\n");
+        case RHALL_IOCTL_SET_CALIBRATION:               //nv write to kernel 
+            printk("RHALL_IOCTL_SET_CALIBRATION\n");
             if(copy_from_user(&cali_data, argp, sizeof(cali_data))) return -EFAULT;
             if (cali_data.cali_flag != 1 || cali_data.lowthd > cali_data.highthd ) 
             {
                 dbg("RHALL_IOCTL_SET_CALIBRATION para is invalid. \n");
                 break;
             }
+            p_m1120_data->value_30degree = cali_data.value_30degree;
+            p_m1120_data->value_70degree = cali_data.value_30degree;
             p_m1120_data->thrlow = cali_data.lowthd;
             p_m1120_data->thrhigh= cali_data.highthd;
-            g_is_back = 1;
+            rear_state = 1;
             m1120_update_interrupt_threshold(&p_m1120_data->client->dev);
             break;
-        case RHALL_IOCTL_GET_CALIBRATED_DATA:           //use
-            printk("RHALL_IOCTL_GET_CALIBRATED_DATA");
-            kbuf = m1120_get_calibrated_data(&p_m1120_data->client->dev, &caldata);
+        case RHALL_IOCTL_GET_CALIBRATED_DATA:           //get hall adc data
+            msleep(50);
+            m1120_measure(p_m1120_data, &raw);
+            caldata = raw;
             if(copy_to_user(argp, &caldata, sizeof(caldata))) return -EFAULT;
-            printk("calibrated data (%d)\n", caldata);
+            printk("Get hall_adc data (%d)\n", caldata);
             break;
-        case RHALL_IOCTL_GET_DATA:                      //use
-            printk("RHALL_IOCTL_GET_DATA");
-            kbuf = !g_is_back;
+        case RHALL_IOCTL_GET_DATA:                      //get hall state 
+            kbuf = rear_state;
             if(copy_to_user(argp, &kbuf, sizeof(caldata))) return -EFAULT;
-            printk("current hall state (%d)\n", kbuf);
+            //printk("Get current hall state (%d)\n", kbuf);
             break;        
         case RHALL_IOCTL_SET_REG:
             if(copy_from_user(&kbuf, argp, sizeof(kbuf))) return -EFAULT;
@@ -1014,70 +1126,6 @@ static unsigned int m1120_misc_dev_poll( struct file *filp, struct poll_table_st
 /* *************************************************
    sysfs attributes
  ************************************************* */
-static ssize_t m1120_enable_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    return sprintf(buf, "%d\n", m1120_get_enable(dev));
-}
-
-static ssize_t m1120_enable_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    unsigned long enable = simple_strtoul(buf, NULL, 10);
-
-    if ((enable == 0) || (enable == 1)) {
-        m1120_set_enable(dev, enable);
-    }
-
-    return count;
-}
-
-static ssize_t m1120_delay_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    return sprintf(buf, "%d\n", m1120_get_delay(dev));
-}
-
-static ssize_t m1120_delay_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    unsigned long delay = simple_strtoul(buf, NULL, 10);
-
-    if (delay > M1120_DELAY_MAX) {
-        delay = M1120_DELAY_MAX;
-    }
-
-    m1120_set_delay(dev, delay);
-
-    return count;
-}
-
-static ssize_t m1120_debug_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    return sprintf(buf, "%d\n", m1120_get_debug(dev));
-}
-
-static ssize_t m1120_debug_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    unsigned long debug = simple_strtoul(buf, NULL, 10);
-
-    m1120_set_debug(dev, debug);
-
-    return count;
-}
-
-static ssize_t m1120_wake_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    return 0;
-}
-
 static ssize_t m1120_all_reg_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
@@ -1140,14 +1188,19 @@ static ssize_t m1120_thd_show(struct device *dev,
     return sprintf(buf, "lowthd:%d highthd:%d \n", p_data->thrlow,  p_data->thrhigh);
 }
 
-static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP,
-        m1120_enable_show, m1120_enable_store);
-static DEVICE_ATTR(delay, S_IRUGO|S_IWUSR|S_IWGRP,
-        m1120_delay_show, m1120_delay_store);
-static DEVICE_ATTR(debug, S_IRUGO|S_IWUSR|S_IWGRP,
-        m1120_debug_show, m1120_debug_store);
-static DEVICE_ATTR(wake, S_IWUSR|S_IWGRP,
-        NULL, m1120_wake_store);
+static ssize_t m1120_loglevel_store(struct device *dev,
+        struct device_attribute *attr,
+        const char *buf, size_t count)
+{
+    int val = 0;
+
+    sscanf(buf, "%d", &val);
+    mll20_log_level = val;
+    printk("m1120 set log level : %d\n", val);
+
+    return count;
+}
+
 static DEVICE_ATTR(allreg, S_IRUGO | S_IWUSR | S_IWGRP,
         m1120_all_reg_show, NULL);
 static DEVICE_ATTR(adc, S_IRUGO | S_IWUSR | S_IWGRP,
@@ -1156,16 +1209,16 @@ static DEVICE_ATTR(set_reg, S_IWUSR | S_IWGRP,
         NULL, m1120_set_reg_store);
 static DEVICE_ATTR(thd, S_IRUGO | S_IWUSR | S_IWGRP,
         m1120_thd_show, NULL);
+static DEVICE_ATTR(log_level, S_IRUGO | S_IWUSR | S_IWGRP,
+        NULL, m1120_loglevel_store);
 
 static struct attribute *m1120_attributes[] = {
-    &dev_attr_enable.attr,
-    &dev_attr_delay.attr,
-    &dev_attr_debug.attr,
-    &dev_attr_wake.attr,
     &dev_attr_allreg.attr,	
     &dev_attr_adc.attr,       
     &dev_attr_set_reg.attr,
     &dev_attr_thd.attr,      
+    &dev_attr_log_level.attr,      
+    
     NULL
 };
 
@@ -1179,9 +1232,9 @@ static ssize_t rotor_node_read(struct file *file, char __user *buf, size_t count
     char *p = page;	
     int len = 0; 	
 
-    printk("%s, hall_state = %d\n", __func__, !g_is_back);
+//    printk("%s, hall_state = %d\n", __func__, rear_state);
         
-    p += sprintf(p, "%d\n", !g_is_back);	
+    p += sprintf(p, "%d\n", rear_state);	
     len = p - page;	
     if (len > *pos)		
         len -= *pos;	
@@ -1195,8 +1248,7 @@ static ssize_t rotor_node_read(struct file *file, char __user *buf, size_t count
     return len < count ? len  : count;
 }
 
-#if 0
-static ssize_t rotor_node_write(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+static ssize_t start_block_detection(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 {	
     char tmp[32] = {0};	
     int ret;		
@@ -1204,14 +1256,53 @@ static ssize_t rotor_node_write(struct file *file, char __user *buf, size_t coun
         return -EINVAL;		
     ret = copy_from_user(tmp, buf, 32);
 
-    sscanf(tmp, "%d", &g_is_back);	
+    motor_start_speed = tmp[0] - 0x30;
+    
+    // when start motor, change to polling mode
+
+    switch(motor_start_speed)
+    {
+        case 0 :  
+            schedule_work_delay = 20;
+            break;
+        case 1 :  
+        case 2 :  
+        case 3 :              
+        case 4 :              
+            schedule_work_delay = 200;
+            break;            
+        case 5 :              
+        case 6 :              
+            schedule_work_delay = 200;
+            break;           
+        case 7 :              
+        case 8 :              
+            break;            
+    }
+
+    printk("%s, speed  = %d, schedule_work_delay = %d\n", __func__, motor_start_speed, schedule_work_delay);
+    
+    change_speed_flag = 0;
+    data_trend = 0;
+
+    p_m1120_data->irq_source = 0; //delayed work for polling
+    
+    //m1120_frequency_set(&p_m1120_data->client->dev,M1120_OPERATION_FREQUENCY);    
+    m1120_set_detection_mode(&p_m1120_data->client->dev, M1120_DETECTION_MODE_POLLING);
+
+    cancel_delayed_work_sync(&p_m1120_data->work);
+
+    schedule_delayed_work(&p_m1120_data->work, 0);
 
     return count;	
 }
-#endif
+
 static struct file_operations rotor_node_ctrl = {
     .read = rotor_node_read,
-    //.write = rotor_node_write,  
+};
+
+static struct file_operations block_ctrl = {
+    .write = start_block_detection,  
 };
 
 
@@ -1261,9 +1352,7 @@ int m1120_i2c_drv_probe(struct i2c_client *client, const struct i2c_device_id *i
     m1120_data_t			*p_data = NULL;
     int						err = 0;
 
-    dbg_func_in();
     printk("m1120_i2c_drv_probe start...\n");
-    //goto test_ok;
 
     p_data = kzalloc(sizeof(m1120_data_t), GFP_KERNEL);
     if (!p_data) {
@@ -1272,7 +1361,6 @@ int m1120_i2c_drv_probe(struct i2c_client *client, const struct i2c_device_id *i
         goto error_0;
     }
 
-    mutex_init(&p_data->mtx.enable);
     mutex_init(&p_data->mtx.data);
 
     if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -1310,14 +1398,12 @@ int m1120_i2c_drv_probe(struct i2c_client *client, const struct i2c_device_id *i
         mxerr(&client->dev, "m1120_init_device was failed(%d)", err);
         goto error_1;
     }
-    mxinfo(&client->dev, "%s was found", id->name);
 
     err = m1120_input_dev_init(p_data);
     if(err) {
         mxerr(&client->dev, "m1120_input_dev_init was failed(%d)", err);
         goto error_1;
     }
-    mxinfo(&client->dev, "%s was initialized", M1120_DRIVER_NAME);
 
     err = sysfs_create_group(&p_data->input_dev->dev.kobj, &m1120_attribute_group);
     if(err) {
@@ -1329,6 +1415,13 @@ int m1120_i2c_drv_probe(struct i2c_client *client, const struct i2c_device_id *i
     if (rotordir == NULL)
     {
         printk(" create proc/%s fail\n", rotor_node_name);
+        goto error_3;
+    }
+
+    rotordir = proc_create(whether_block, 0664, NULL, &block_ctrl); 
+    if (rotordir == NULL)
+    {
+        printk(" create proc/%s fail\n", whether_block);
         goto error_3;
     }
 
@@ -1345,6 +1438,8 @@ int m1120_i2c_drv_probe(struct i2c_client *client, const struct i2c_device_id *i
         mxerr(&client->dev, "m1120_set_detection_mode was failed(%d)", err);
         return err;
     }
+
+    m1120_update_interrupt_threshold(&p_data->client->dev);
 
     printk("%s : %s was probed.\n", __func__, M1120_DRIVER_NAME);
 
@@ -1373,7 +1468,6 @@ static int m1120_i2c_drv_remove(struct i2c_client *client)
 {
     m1120_data_t *p_data = i2c_get_clientdata(client);
 
-    m1120_set_enable(&client->dev, 0);
     misc_deregister(&m1120_misc_dev);
     sysfs_remove_group(&p_data->input_dev->dev.kobj, &m1120_attribute_group);
     m1120_input_dev_terminate(p_data);
@@ -1387,51 +1481,29 @@ static int m1120_i2c_drv_remove(struct i2c_client *client)
 
 static int m1120_i2c_drv_suspend(struct device *dev)
 {
-#if 0 /* delete it by lauson. */
-    m1120_data_t *p_data = dev_get_drvdata(dev);
+    printk("%s\n", __func__);
 
-    dbg_func_in();
+    m1120_motor_stop_hanle(false);
+    
+    m1120_i2c_suspend = 1;
 
-    mutex_lock(&p_data->mtx.enable);
-
-    if (m1120_get_enable(dev)) {
-        if(p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) {
-            m1120_set_operation_mode(dev, OPERATION_MODE_MEASUREMENT);
-        } else {
-            cancel_delayed_work_sync(&p_data->work);
-            m1120_set_detection_mode(dev, M1120_DETECTION_MODE_INTERRUPT);
-        }
-    }
-
-    mutex_unlock(&p_data->mtx.enable);
-#endif 
-
-    dbg_func_out();
-
+    printk("%s, i2c_suspend!\n", __func__);
+    
+    disable_irq(p_m1120_data->irq);
+    
     return 0;
 }
 
 static int m1120_i2c_drv_resume(struct device *dev)
 {
-#if 0 /* delete it by lauson. */
-    m1120_data_t *p_data = dev_get_drvdata(dev);
+    printk("%s\n", __func__);
 
-    dbg_func_in();
+    m1120_i2c_suspend = 0;
 
-    mutex_lock(&p_data->mtx.enable);
-
-    if (m1120_get_enable(dev)) {
-        if(p_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) {
-            m1120_set_detection_mode(dev, M1120_DETECTION_MODE_POLLING);
-            schedule_delayed_work(&p_data->work, msecs_to_jiffies(m1120_get_delay(dev)));
-        }
-    }
-
-    mutex_unlock(&p_data->mtx.enable);
-#endif 
-
-    dbg_func_out();
-
+    printk("%s, i2c_resume!\n", __func__);
+    
+    enable_irq(p_m1120_data->irq);
+    
     return 0;
 }
 
@@ -1455,7 +1527,7 @@ static struct i2c_driver m1120_driver = {
     .remove		= m1120_i2c_drv_remove,
     .id_table	= m1120_i2c_drv_id_table,
     //.suspend	= m1120_i2c_drv_suspend,
-    //.resume		= m1120_i2c_drv_resume,
+    //.resume	= m1120_i2c_drv_resume,
 };
 
 static int __init m1120_driver_init(void)

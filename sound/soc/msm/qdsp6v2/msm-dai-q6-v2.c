@@ -1441,9 +1441,6 @@ static int msm_mi2s_get_port_id(u32 mi2s_id, int stream, u16 *port_id)
 		case MSM_QUAT_MI2S:
 			*port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
 			break;
-		case MSM_SEC_MI2S_VIBRA:
-			*port_id = AFE_PORT_ID_SECONDARY_MI2S_RX_VIBRA;
-			break;
 		break;
 		default:
 			ret = -1;
@@ -1596,14 +1593,8 @@ static int msm_dai_q6_mi2s_hw_params(struct snd_pcm_substream *substream,
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 	case SNDRV_PCM_FORMAT_SPECIAL:
-#ifndef CONFIG_OPPO_MSM_14021
-/* xiaojun.lv@PhoneDpt.AudioDrv, 2014/07/18,temp modify for 14021 sec i2s voice call */
 		dai_data->port_config.i2s.bit_width = 16;
 		dai_data->bitwidth = 16;
-#else
-		dai_data->port_config.i2s.bit_width = 24;
-		dai_data->bitwidth = 24;
-#endif
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
 		dai_data->port_config.i2s.bit_width = 24;
@@ -1927,7 +1918,7 @@ static __devinit int msm_dai_q6_mi2s_dev_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "dev name %s dev id %x\n", dev_name(&pdev->dev),
 		mi2s_intf);
 
-	if (mi2s_intf < MSM_PRIM_MI2S || mi2s_intf > MSM_SEC_MI2S_VIBRA) {
+	if (mi2s_intf < MSM_PRIM_MI2S || mi2s_intf > MSM_QUAT_MI2S) {
 		dev_err(&pdev->dev,
 			"%s: Invalid MI2S ID %u from Device Tree\n",
 			__func__, mi2s_intf);

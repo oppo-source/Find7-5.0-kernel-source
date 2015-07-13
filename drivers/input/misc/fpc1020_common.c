@@ -10,6 +10,7 @@
 #define DEBUG
 
 #include <linux/gpio.h>
+#include <linux/interrupt.h>
 
 #ifndef CONFIG_USE_OF
 #include <linux/spi/fpc1020_common.h>
@@ -47,6 +48,9 @@ struct chip_struct {
 /* -------------------------------------------------------------------- */
 /* fpc1020 driver constants						*/
 /* -------------------------------------------------------------------- */
+#define FPC1150_ROWS		208u
+#define FPC1150_COLUMNS		80u
+
 #define FPC1021_ROWS		160u
 #define FPC1021_COLUMNS		160u
 
@@ -61,54 +65,94 @@ static const char *chip_text[] = {
 	"N/A",		/* FPC1020_CHIP_NONE */
 	"fpc1020a", 	/* FPC1020_CHIP_1020A */
 	"fpc1021a", 	/* FPC1020_CHIP_1021A */
-	"fpc1021b" 	/* FPC1020_CHIP_1021B */
+	"fpc1021b", 	/* FPC1020_CHIP_1021B */
+	"fpc1150a", 	/* FPC1020_CHIP_1150A */
+	"fpc1150b", 	/* FPC1020_CHIP_1150B */
+	"fpc1150f" 	/* FPC1020_CHIP_1150F */
 };
 
 static const struct chip_struct chip_data[] = {
 	{FPC1020_CHIP_1020A, 0x020a, 0, FPC1020_ROWS, FPC1020_COLUMNS, FPC102X_ADC_GROUP_SIZE},
 	{FPC1020_CHIP_1021A, 0x021a, 2, FPC1021_ROWS, FPC1021_COLUMNS, FPC102X_ADC_GROUP_SIZE},
 	{FPC1020_CHIP_1021B, 0x021b, 1, FPC1021_ROWS, FPC1021_COLUMNS, FPC102X_ADC_GROUP_SIZE},
+	{FPC1020_CHIP_1150A, 0x150a, 1, FPC1150_ROWS, FPC1150_COLUMNS, FPC102X_ADC_GROUP_SIZE},
+	{FPC1020_CHIP_1150B, 0x150b, 1, FPC1150_ROWS, FPC1150_COLUMNS, FPC102X_ADC_GROUP_SIZE},
+	{FPC1020_CHIP_1150F, 0x150f, 1, FPC1150_ROWS, FPC1150_COLUMNS, FPC102X_ADC_GROUP_SIZE},
 	{FPC1020_CHIP_NONE,  0,0,0,0,0}
 };
 
 const fpc1020_setup_t fpc1020_setup_default_1020_a1a2 = {
-	.adc_gain		= {0, 0, 1},
-	.adc_shift		= {2, 1, 1},
-	.pxl_ctrl		= {0x0f1f, 0x0f1b, 0x0f0b},
-	.capture_settings_mux	= 0,
-	.capture_count		= 1,
-	.capture_mode		= FPC1020_MODE_WAIT_AND_CAPTURE,
-	.capture_row_start	= 0,
-	.capture_row_count	= FPC1020_ROWS,
-	.capture_col_start	= 0,
-	.capture_col_groups	= FPC1020_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.adc_gain			= {0, 0, 1, 1},
+	.adc_shift			= {1, 2, 1, 1},
+	.pxl_ctrl			= {0x1b, 0x1f, 0x0b, 0x0b},
+	.capture_settings_mux		= 0,
+	.capture_count			= 1,
+	.capture_mode			= FPC1020_MODE_WAIT_AND_CAPTURE,
+	.capture_row_start		= 0,
+	.capture_row_count		= FPC1020_ROWS,
+	.capture_col_start		= 0,
+	.capture_col_groups		= FPC1020_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.capture_finger_up_threshold	= 0,
+	.capture_finger_down_threshold	= 6,
+	.finger_detect_threshold	= 0x50,
+	.wakeup_detect_rows		= {92, 92},
+	.wakeup_detect_cols		= {64, 120},
 };
 
 const fpc1020_setup_t fpc1020_setup_default_1020_a3a4 = {
-	.adc_gain		= {0, 0, 4},
-	.adc_shift		= {14, 7, 6},
-	.pxl_ctrl		= {0x0f1b, 0x0f1f, 0x0f1b},
-	.capture_settings_mux	= 0,
-	.capture_count		= 1,
-	.capture_mode		= FPC1020_MODE_WAIT_AND_CAPTURE,
-	.capture_row_start	= 0,
-	.capture_row_count	= FPC1020_ROWS,
-	.capture_col_start	= 0,
-	.capture_col_groups	= FPC1020_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.adc_gain			= {2, 2, 2, 2},
+	.adc_shift			= {10, 10, 10, 10},
+	.pxl_ctrl			= {0x1e, 0x0e, 0x0a, 0x0a},
+	.capture_settings_mux		= 0,
+	.capture_count			= 1,
+	.capture_mode			= FPC1020_MODE_WAIT_AND_CAPTURE,
+	.capture_row_start		= 0,
+	.capture_row_count		= FPC1020_ROWS,
+	.capture_col_start		= 0,
+	.capture_col_groups		= FPC1020_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.capture_finger_up_threshold	= 0,
+	.capture_finger_down_threshold	= 6,
+	.finger_detect_threshold	= 0x50,
+	.wakeup_detect_rows		= {92, 92},
+	.wakeup_detect_cols		= {64, 120},
 };
 
 const fpc1020_setup_t fpc1020_setup_default_1021_a2b1 = {
-    .adc_gain           = {3, 2, 5},
-    .adc_shift          = {8, 9, 5},
-    .pxl_ctrl           = {0x0f0b, 0x0f1f, 0x0f1f},
-	.capture_settings_mux	= 0,
-	.capture_count		= 1,
-	.capture_mode		= FPC1020_MODE_WAIT_AND_CAPTURE,
-	.capture_row_start	= 0,
-	.capture_row_count	= FPC1021_ROWS,
-	.capture_col_start	= 0,
-	.capture_col_groups	= FPC1021_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.adc_gain			= {2, 2, 3, 3},
+	.adc_shift			= {10, 10, 7, 7},
+	.pxl_ctrl			= {0x1e, 0x0e, 0x0e, 0x0e},
+	.capture_settings_mux		= 0,
+	.capture_count			= 1,
+	.capture_mode			= FPC1020_MODE_WAIT_AND_CAPTURE,
+	.capture_row_start		= 0,
+	.capture_row_count		= FPC1021_ROWS,
+	.capture_col_start		= 0,
+	.capture_col_groups		= FPC1021_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.capture_finger_up_threshold	= 0,
+	.capture_finger_down_threshold	= 6,
+	.finger_detect_threshold	= 0x50,
+	.wakeup_detect_rows		= {76, 76},
+	.wakeup_detect_cols		= {56, 88},
 };
+
+const fpc1020_setup_t fpc1020_setup_default_1150_a1b1f1 = {
+	.adc_gain			= {2, 2, 2, 2},
+	.adc_shift			= {10, 10, 10, 10},
+	.pxl_ctrl			= {0x1e, 0x0e, 0x0a, 0x0a},
+	.capture_settings_mux		= 0,
+	.capture_count			= 1,
+	.capture_mode			= FPC1020_MODE_WAIT_AND_CAPTURE,
+	.capture_row_start		= 0,
+	.capture_row_count		= FPC1150_ROWS,
+	.capture_col_start		= 0,
+	.capture_col_groups		= FPC1150_COLUMNS / FPC102X_ADC_GROUP_SIZE,
+	.capture_finger_up_threshold	= 0,
+	.capture_finger_down_threshold	= 7,
+	.finger_detect_threshold	= 0x50,
+	.wakeup_detect_rows		= {72, 128},
+	.wakeup_detect_cols 		= {32, 32},
+};
+
 
 const fpc1020_diag_t fpc1020_diag_default = {
 	.selftest     = 0,
@@ -133,6 +177,11 @@ static int fpc1020_write_sensor_1020a_a3a4_setup(fpc1020_data_t *fpc1020);
 
 static int fpc1020_write_sensor_1021_setup(fpc1020_data_t *fpc1020);
 
+static int fpc1020_write_sensor_1150_setup(fpc1020_data_t *fpc1020);
+
+static int fpc1020_check_irq_after_reset(fpc1020_data_t *fpc1020);
+
+static int fpc1020_flush_adc(fpc1020_data_t *fpc1020);
 
 /* -------------------------------------------------------------------- */
 /* function definitions							*/
@@ -200,7 +249,7 @@ int fpc1020_manage_huge_buffer(fpc1020_data_t *fpc1020, size_t new_size)
 							__func__, error);
 	} else {
 		dev_info(&fpc1020->spi->dev, "%s, size=%d bytes\n",
-					__func__, fpc1020->huge_buffer_size);
+					__func__, (int)fpc1020->huge_buffer_size);
 	}
 
 	return error;
@@ -210,35 +259,44 @@ int fpc1020_manage_huge_buffer(fpc1020_data_t *fpc1020, size_t new_size)
 /* -------------------------------------------------------------------- */
 int fpc1020_setup_defaults(fpc1020_data_t *fpc1020)
 {
-	int error;
+	int error = 0;
 	const fpc1020_setup_t *ptr;
 
 	memcpy((void *)&fpc1020->diag,
 	       (void *)&fpc1020_diag_default,
 	       sizeof(fpc1020_diag_t));
 
-	error = (fpc1020->chip.type == FPC1020_CHIP_1020A) ||
-		(fpc1020->chip.type == FPC1020_CHIP_1021A) ||
-		(fpc1020->chip.type == FPC1020_CHIP_1021B) ? 0 : -EINVAL;
+	switch (fpc1020->chip.type) {
 
-	if (error)
-		goto out_err;
+	case FPC1020_CHIP_1020A:
 
-	if (fpc1020->chip.type == FPC1020_CHIP_1020A) {
 		ptr = (fpc1020->chip.revision == 1) ? &fpc1020_setup_default_1020_a1a2 :
 			(fpc1020->chip.revision == 2) ? &fpc1020_setup_default_1020_a1a2 :
 			(fpc1020->chip.revision == 3) ? &fpc1020_setup_default_1020_a3a4 :
 			(fpc1020->chip.revision == 4) ? &fpc1020_setup_default_1020_a3a4 :
 			NULL;
+		break;
 
-	} else if (fpc1020->chip.type == FPC1020_CHIP_1021A) {
+	case FPC1020_CHIP_1021A: 
 		ptr = (fpc1020->chip.revision == 2) ? &fpc1020_setup_default_1021_a2b1 :
 			NULL;
-	} else if (fpc1020->chip.type == FPC1020_CHIP_1021B) {
+		break;
+
+	case FPC1020_CHIP_1021B:
 		ptr = (fpc1020->chip.revision == 1) ? &fpc1020_setup_default_1021_a2b1 :
 			NULL;
-	} else {
+		break;
+
+	case FPC1020_CHIP_1150A:
+	case FPC1020_CHIP_1150B:
+	case FPC1020_CHIP_1150F:
+		ptr = (fpc1020->chip.revision == 1) ? &fpc1020_setup_default_1150_a1b1f1 :
+			NULL;
+		break;
+
+	default:
 		ptr = NULL;
+		break;
 	}
 
 	error = (ptr == NULL) ? -EINVAL : 0;
@@ -340,26 +398,22 @@ int fpc1020_reset(fpc1020_data_t *fpc1020)
 
 	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
 
-//	error = (fpc1020->soft_reset_enabled) ?
-//			fpc1020_spi_reset(fpc1020) :
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+	error = (fpc1020->soft_reset_enabled) ?
+			fpc1020_spi_reset(fpc1020) :
+#endif /* VENDOR_EDIT */
+
 			fpc1020_gpio_reset(fpc1020);
 
 	disable_irq(fpc1020->irq);
 	fpc1020->interrupt_done = false;
 	enable_irq(fpc1020->irq);
 
-	error = fpc1020_read_irq(fpc1020, true);
+	error = fpc1020_check_irq_after_reset(fpc1020);
 
 	if (error < 0)
 		goto out;
-
-	if (error != FPC_1020_IRQ_REG_BITS_REBOOT) {
-		dev_err(&fpc1020->spi->dev,
-			"IRQ register, expected 0x%x, got 0x%x.\n",
-			FPC_1020_IRQ_REG_BITS_REBOOT, (u8)error);
-
-		error = -EIO;
-	}
 
 	error = (gpio_get_value(fpc1020->irq_gpio) != 0) ? -EIO : 0;
 
@@ -376,6 +430,9 @@ int fpc1020_reset(fpc1020_data_t *fpc1020)
 
 		error = -EIO;
 	}
+
+	if (!error && (fpc1020->chip.type == FPC1020_CHIP_1020A))
+		error = fpc1020_flush_adc(fpc1020);
 
 	fpc1020->capture.available_bytes = 0;
 	fpc1020->capture.read_offset = 0;
@@ -602,6 +659,11 @@ int fpc1020_write_sensor_setup(fpc1020_data_t *fpc1020)
 		case FPC1020_CHIP_1021B:
 		return fpc1020_write_sensor_1021_setup(fpc1020);
 
+		case FPC1020_CHIP_1150A:
+		case FPC1020_CHIP_1150B:
+		case FPC1020_CHIP_1150F:
+		return fpc1020_write_sensor_1150_setup(fpc1020);
+
 		default:
 		break;
 	}
@@ -640,7 +702,7 @@ static int fpc1020_write_sensor_1020a_a1a2_setup(fpc1020_data_t *fpc1020)
 	u32 temp_u32;
 	u64 temp_u64;
 	fpc1020_reg_access_t reg;
-	int mux = 0;
+	const int mux = FPC1020_MAX_ADC_SETTINGS - 1;
 	const int rev = fpc1020->chip.revision;
 
 	dev_dbg(&fpc1020->spi->dev, "%s %d\n", __func__, mux);
@@ -685,7 +747,7 @@ static int fpc1020_write_sensor_1020a_a1a2_setup(fpc1020_data_t *fpc1020)
 		goto out;
 
 	temp_u8 = (fpc1020->vddtx_mv > 0) ? 0x02 :	/* external supply */
-		(fpc1020->txout_boost) ? 0x32 : 0x12;	/* internal supply */
+		(fpc1020->txout_boost) ? 0x22 : 0x12;	/* internal supply */
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_CONF, &temp_u8);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
@@ -701,6 +763,7 @@ static int fpc1020_write_sensor_1020a_a1a2_setup(fpc1020_data_t *fpc1020)
 		goto out;
 
 	temp_u16 = fpc1020->setup.pxl_ctrl[mux];
+	temp_u16 |= FPC1020_PXL_BIAS_CTRL;
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_PXL_CTRL, &temp_u16);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
@@ -712,14 +775,14 @@ static int fpc1020_write_sensor_1020a_a1a2_setup(fpc1020_data_t *fpc1020)
 	if (error)
 		goto out;
 
-	temp_u8 = 0x50;
-	FPC1020_MK_REG_WRITE(reg,FPC102X_REG_FNGR_DET_THRES, &temp_u8);
+	temp_u8 = fpc1020->setup.finger_detect_threshold;
+	FPC1020_MK_REG_WRITE(reg, FPC1020_REG_FNGR_DET_THRES, &temp_u8);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
 		goto out;
 
 	temp_u16 = 0x00ff;
-	FPC1020_MK_REG_WRITE(reg,FPC102X_REG_FNGR_DET_CNTR, &temp_u16);
+	FPC1020_MK_REG_WRITE(reg, FPC1020_REG_FNGR_DET_CNTR, &temp_u16);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
 		goto out;
@@ -736,9 +799,9 @@ static int fpc1020_write_sensor_1020a_a3a4_setup(fpc1020_data_t *fpc1020)
 	u8 temp_u8;
 	u16 temp_u16;
 	u64 temp_u64;
-	const int rev = fpc1020->chip.revision;
 	fpc1020_reg_access_t reg;
-	int mux = 0;
+	const int mux = FPC1020_MAX_ADC_SETTINGS - 1;
+	const int rev = fpc1020->chip.revision;
 
 	dev_dbg(&fpc1020->spi->dev, "%s %d\n", __func__, mux);
 
@@ -783,7 +846,7 @@ static int fpc1020_write_sensor_1020a_a3a4_setup(fpc1020_data_t *fpc1020)
 	}
 
 	temp_u8 = (fpc1020->vddtx_mv > 0) ? 0x02 :	/* external supply */
-		(fpc1020->txout_boost) ? 0x32 : 0x12;	/* internal supply */
+		(fpc1020->txout_boost) ? 0x22 : 0x12;	/* internal supply */
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_CONF, &temp_u8);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
@@ -799,6 +862,7 @@ static int fpc1020_write_sensor_1020a_a3a4_setup(fpc1020_data_t *fpc1020)
 		goto out;
 
 	temp_u16 = fpc1020->setup.pxl_ctrl[mux];
+	temp_u16 |= FPC1020_PXL_BIAS_CTRL;
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_PXL_CTRL, &temp_u16);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
@@ -810,14 +874,14 @@ static int fpc1020_write_sensor_1020a_a3a4_setup(fpc1020_data_t *fpc1020)
 	if (error)
 		goto out;
 
-	temp_u8 = 0x50;
-	FPC1020_MK_REG_WRITE(reg,FPC102X_REG_FNGR_DET_THRES, &temp_u8);
+	temp_u8 = fpc1020->setup.finger_detect_threshold;
+	FPC1020_MK_REG_WRITE(reg, FPC1020_REG_FNGR_DET_THRES, &temp_u8);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
 		goto out;
 
 	temp_u16 = 0x00ff;
-	FPC1020_MK_REG_WRITE(reg,FPC102X_REG_FNGR_DET_CNTR, &temp_u16);
+	FPC1020_MK_REG_WRITE(reg, FPC1020_REG_FNGR_DET_CNTR, &temp_u16);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
 		goto out;
@@ -835,8 +899,8 @@ static int fpc1020_write_sensor_1021_setup(fpc1020_data_t *fpc1020)
 	u16 temp_u16;
 	u64 temp_u64;
 	fpc1020_reg_access_t reg;
-	int mux = 0;
-	int rev = fpc1020->chip.revision;
+	const int mux = FPC1020_MAX_ADC_SETTINGS - 1;
+	const int rev = fpc1020->chip.revision;
 
 	dev_dbg(&fpc1020->spi->dev, "%s %d\n", __func__, mux);
 
@@ -856,7 +920,7 @@ static int fpc1020_write_sensor_1021_setup(fpc1020_data_t *fpc1020)
 		goto out;
 
 	temp_u8 = (fpc1020->vddtx_mv > 0) ? 0x02 :	/* external supply */
-		(fpc1020->txout_boost) ? 0x32 : 0x12;	/* internal supply */
+		(fpc1020->txout_boost) ? 0x22 : 0x12;	/* internal supply */
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_CONF, &temp_u8);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
@@ -872,6 +936,7 @@ static int fpc1020_write_sensor_1021_setup(fpc1020_data_t *fpc1020)
 		goto out;
 
 	temp_u16 = fpc1020->setup.pxl_ctrl[mux];
+	temp_u16 |= FPC1020_PXL_BIAS_CTRL;
 	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_PXL_CTRL, &temp_u16);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
@@ -883,20 +948,131 @@ static int fpc1020_write_sensor_1021_setup(fpc1020_data_t *fpc1020)
 	if (error)
 		goto out;
 
-	temp_u8 = 0x50;
-	FPC1020_MK_REG_WRITE(reg,FPC102X_REG_FNGR_DET_THRES, &temp_u8);
+	temp_u8 = fpc1020->setup.finger_detect_threshold;
+	FPC1020_MK_REG_WRITE(reg, FPC1020_REG_FNGR_DET_THRES, &temp_u8);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
 		goto out;
 
 	temp_u16 = 0x00ff;
-	FPC1020_MK_REG_WRITE(reg,FPC102X_REG_FNGR_DET_CNTR, &temp_u16);
+	FPC1020_MK_REG_WRITE(reg, FPC1020_REG_FNGR_DET_CNTR, &temp_u16);
 	error = fpc1020_reg_access(fpc1020, &reg);
 	if (error)
 		goto out;
 
 out:
 	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
+static int fpc1020_write_sensor_1150_setup(fpc1020_data_t *fpc1020)
+{
+	int error = 0;
+	u8 temp_u8;
+	u16 temp_u16;
+	u32 temp_u32;
+	u64 temp_u64;
+	fpc1020_reg_access_t reg;
+	const int mux = FPC1020_MAX_ADC_SETTINGS - 1;
+	const int rev = fpc1020->chip.revision;
+
+	dev_dbg(&fpc1020->spi->dev, "%s %d\n", __func__, mux);
+
+	if (rev == 0)
+		return -EINVAL;
+
+	temp_u8 = 0x09;
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_DLY, &temp_u8);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u64 = 0x0808080814141414;
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_SAMPLE_PX_DLY, &temp_u64);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u8 = (fpc1020->vddtx_mv > 0) ? 0x02 :	/* external supply */
+		(fpc1020->txout_boost) ? 0x22 : 0x12;	/* internal supply */
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_CONF, &temp_u8);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u16 = fpc1020->setup.adc_shift[mux];
+	temp_u16 <<= 8;
+	temp_u16 |= fpc1020->setup.adc_gain[mux];
+
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_ADC_SHIFT_GAIN, &temp_u16);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u16 = fpc1020->setup.pxl_ctrl[mux];
+	temp_u16 |= FPC1020_PXL_BIAS_CTRL;
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_PXL_CTRL, &temp_u16);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u8 = 0x03 | 0x08;
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_IMAGE_SETUP, &temp_u8);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u32 = 0x0001; /* fngrUpSteps */
+	temp_u32 <<= 8;
+	temp_u32 |= fpc1020->setup.finger_detect_threshold; /* fngrLstThr */
+	temp_u32 <<= 8;
+	temp_u32 |= fpc1020->setup.finger_detect_threshold; /* fngrDetThr */
+	FPC1020_MK_REG_WRITE(reg, FPC1150_REG_FNGR_DET_THRES, &temp_u32);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	temp_u32 = 0x190100ff;
+	FPC1020_MK_REG_WRITE(reg,FPC1150_REG_FNGR_DET_CNTR, &temp_u32);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+out:
+	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
+static int fpc1020_check_irq_after_reset(fpc1020_data_t *fpc1020)
+{
+	int error = 0;
+	u8 irq_status;
+
+	fpc1020_reg_access_t reg_clear = {
+		.reg = FPC102X_REG_READ_INTERRUPT_WITH_CLEAR,
+		.write = false,
+		.reg_size = FPC1020_REG_SIZE(
+					FPC102X_REG_READ_INTERRUPT_WITH_CLEAR),
+		.dataptr = &irq_status
+	};
+
+	error = fpc1020_reg_access(fpc1020, &reg_clear);
+
+	if(error < 0)
+		return error;
+
+	if (irq_status != FPC_1020_IRQ_REG_BITS_REBOOT) {
+		dev_err(&fpc1020->spi->dev,
+			"IRQ register, expected 0x%x, got 0x%x.\n",
+			FPC_1020_IRQ_REG_BITS_REBOOT,
+			irq_status);
+
+		error = -EIO;
+	}
+
+	return (error < 0) ? error : irq_status;
 }
 
 
@@ -954,6 +1130,18 @@ int fpc1020_read_irq(fpc1020_data_t *fpc1020, bool clear_irq)
 	error = fpc1020_reg_access(fpc1020,
 				(clear_irq) ? &reg_clear : &reg_read);
 
+	if(error < 0)
+		return error;
+
+	if (irq_status == FPC_1020_IRQ_REG_BITS_REBOOT) {
+
+		dev_err(&fpc1020->spi->dev,
+			"%s: unexpected irq_status = 0x%x\n"
+			, __func__, irq_status);
+
+		error = -EIO;
+	}
+
 	return (error < 0) ? error : irq_status;
 }
 
@@ -981,6 +1169,9 @@ int fpc1020_reg_access(fpc1020_data_t *fpc1020,
 		      fpc1020_reg_access_t *reg_data)
 {
 	int error = 0;
+
+	u8 temp_buffer[FPC1020_REG_MAX_SIZE];
+
 	struct spi_message msg;
 
 	struct spi_transfer cmd = {
@@ -996,18 +1187,36 @@ int fpc1020_reg_access(fpc1020_data_t *fpc1020,
 	};
 
 	struct spi_transfer data = {
-		.cs_change = 0,
+#ifndef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Modify for HW Config
+		.cs_change = 1,
+#else /* VENDOR_EDIT */
+		.cs_change = 0, //modified by oppo
+#endif /* VENDOR_EDIT */
 		.delay_usecs = 0,
 		.speed_hz = FPC1020_SPI_CLOCK_SPEED,
-		.tx_buf = (reg_data->write) ? fpc1020->huge_buffer : NULL,
-		.rx_buf = (!reg_data->write) ? fpc1020->huge_buffer : NULL,
+		.tx_buf = (reg_data->write)  ? temp_buffer : NULL,
+		.rx_buf = (!reg_data->write) ? temp_buffer : NULL,
 		.len    = reg_data->reg_size,
 		.tx_dma = 0,
 		.rx_dma = 0,
 		.bits_per_word = 0,
 	};
 
-//	gpio_set_value(fpc1020->cs_gpio, 0);
+	if (reg_data->reg_size > sizeof(temp_buffer)) {
+		dev_err(&fpc1020->spi->dev,
+			"%s : illegal register size\n",
+			__func__);
+
+		error = -ENOMEM;
+		goto out;
+	}
+
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+	if (gpio_is_valid(fpc1020->cs_gpio))
+		gpio_set_value(fpc1020->cs_gpio, 0);
+#endif /* VENDOR_EDIT */
 
 	if (reg_data->write) {
 		if (target_little_endian) {
@@ -1015,13 +1224,12 @@ int fpc1020_reg_access(fpc1020_data_t *fpc1020,
 			int dst = reg_data->reg_size - 1;
 
 			while (src < reg_data->reg_size) {
-				fpc1020->huge_buffer[dst] =
-							reg_data->dataptr[src];
+				temp_buffer[dst] = reg_data->dataptr[src];
 				src++;
 				dst--;
 			}
 		} else {
-			memcpy(fpc1020->huge_buffer,
+			memcpy(temp_buffer,
 				reg_data->dataptr,
 				reg_data->reg_size);
 		}
@@ -1034,7 +1242,7 @@ int fpc1020_reg_access(fpc1020_data_t *fpc1020,
 	error = spi_sync(fpc1020->spi, &msg);
 
 	if (error)
-		dev_err(&fpc1020->spi->dev, "spi_sync failed.\n");
+		dev_err(&fpc1020->spi->dev, "%s : spi_sync failed.\n", __func__);
 
 	if (!reg_data->write) {
 		if (target_little_endian) {
@@ -1042,19 +1250,23 @@ int fpc1020_reg_access(fpc1020_data_t *fpc1020,
 			int dst = 0;
 
 			while (dst < reg_data->reg_size) {
-				reg_data->dataptr[dst] =
-						fpc1020->huge_buffer[src];
+				reg_data->dataptr[dst] = temp_buffer[src];
 				src--;
 				dst++;
 			}
 		} else {
 			memcpy(reg_data->dataptr,
-				fpc1020->huge_buffer,
+				temp_buffer,
 				reg_data->reg_size);
 		}
 	}
 
-//	gpio_set_value(fpc1020->cs_gpio, 1);
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+	if (gpio_is_valid(fpc1020->cs_gpio))
+		gpio_set_value(fpc1020->cs_gpio, 1);
+#endif /* VENDOR_EDIT */
+
 /*
 	dev_dbg(&fpc1020->spi->dev,
 		"%s %s 0x%x/%dd (%d bytes) %x %x %x %x : %x %x %x %x\n",
@@ -1063,15 +1275,16 @@ int fpc1020_reg_access(fpc1020_data_t *fpc1020,
 		reg_data->reg,
 		reg_data->reg,
 		reg_data->reg_size,
-		(reg_data->reg_size > 0) ? fpc1020->huge_buffer[0] : 0,
-		(reg_data->reg_size > 1) ? fpc1020->huge_buffer[1] : 0,
-		(reg_data->reg_size > 2) ? fpc1020->huge_buffer[2] : 0,
-		(reg_data->reg_size > 3) ? fpc1020->huge_buffer[3] : 0,
-		(reg_data->reg_size > 4) ? fpc1020->huge_buffer[4] : 0,
-		(reg_data->reg_size > 5) ? fpc1020->huge_buffer[5] : 0,
-		(reg_data->reg_size > 6) ? fpc1020->huge_buffer[6] : 0,
-		(reg_data->reg_size > 7) ? fpc1020->huge_buffer[7] : 0);
+		(reg_data->reg_size > 0) ? temp_buffer[0] : 0,
+		(reg_data->reg_size > 1) ? temp_buffer[1] : 0,
+		(reg_data->reg_size > 2) ? temp_buffer[2] : 0,
+		(reg_data->reg_size > 3) ? temp_buffer[3] : 0,
+		(reg_data->reg_size > 4) ? temp_buffer[4] : 0,
+		(reg_data->reg_size > 5) ? temp_buffer[5] : 0,
+		(reg_data->reg_size > 6) ? temp_buffer[6] : 0,
+		(reg_data->reg_size > 7) ? temp_buffer[7] : 0);
 */
+out:
 	return error;
 }
 
@@ -1085,7 +1298,12 @@ int fpc1020_cmd(fpc1020_data_t *fpc1020,
 	struct spi_message msg;
 
 	struct spi_transfer t = {
-		.cs_change = 0,
+#ifndef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Modify for HW Config
+		.cs_change = 1,
+#else /* VENDOR_EDIT */
+		.cs_change = 0, //modified by oppo
+#endif /* VENDOR_EDIT */
 		.delay_usecs = 0,
 		.speed_hz = FPC1020_SPI_CLOCK_SPEED,
 		.tx_buf = &cmd,
@@ -1096,7 +1314,11 @@ int fpc1020_cmd(fpc1020_data_t *fpc1020,
 		.bits_per_word = 0,
 	};
 
-//	gpio_set_value(fpc1020->cs_gpio, 0);
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+	if (gpio_is_valid(fpc1020->cs_gpio))
+		gpio_set_value(fpc1020->cs_gpio, 0);
+#endif /* VENDOR_EDIT */
 
 	spi_message_init(&msg);
 	spi_message_add_tail(&t,  &msg);
@@ -1114,7 +1336,11 @@ int fpc1020_cmd(fpc1020_data_t *fpc1020,
 			error = fpc1020_read_irq(fpc1020, true);
 	}
 
-//	gpio_set_value(fpc1020->cs_gpio, 1);
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+	if (gpio_is_valid(fpc1020->cs_gpio))
+		gpio_set_value(fpc1020->cs_gpio, 1);
+#endif /* VENDOR_EDIT */
 
 	// dev_dbg(&fpc1020->spi->dev, "%s 0x%x/%dd\n", __func__, cmd, cmd);
 
@@ -1305,8 +1531,11 @@ int fpc1020_sleep(fpc1020_data_t *fpc1020, bool deep_sleep)
 	if (deep_sleep && sleep_ok && gpio_is_valid(fpc1020->reset_gpio))
 		gpio_set_value(fpc1020->reset_gpio, 0);
 
-//	if (deep_sleep && sleep_ok)
-//		gpio_set_value(fpc1020->cs_gpio, 0);
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+	if (deep_sleep && sleep_ok && gpio_is_valid(fpc1020->cs_gpio))
+		gpio_set_value(fpc1020->cs_gpio, 0);
+#endif /* VENDOR_EDIT */
 
 	/* Optional: Also disable power supplies in sleep */
 /*
@@ -1346,7 +1575,7 @@ int fpc1020_fetch_image(fpc1020_data_t *fpc1020,
 		dev_err(&fpc1020->spi->dev,
 			"Image buffer too small for offset +%d (max %d bytes)",
 			offset,
-			buff_size);
+			(int)buff_size);
 
 		error = -ENOBUFS;
 	}
@@ -1365,7 +1594,12 @@ int fpc1020_fetch_image(fpc1020_data_t *fpc1020,
 		};
 
 		struct spi_transfer data = {
-			.cs_change = 0,
+#ifndef VENDOR_EDIT
+			//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Modify for HW Config
+			.cs_change = 1,
+#else /* VENDOR_EDIT */
+			.cs_change = 0, //modified by oppo
+#endif /* VENDOR_EDIT */
 			.delay_usecs = 0,
 			.speed_hz = FPC1020_SPI_CLOCK_SPEED,
 			.tx_buf = NULL,
@@ -1376,7 +1610,11 @@ int fpc1020_fetch_image(fpc1020_data_t *fpc1020,
 			.bits_per_word = 0,
 		};
 
-//		gpio_set_value(fpc1020->cs_gpio, 0);
+#ifndef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+		if (gpio_is_valid(fpc1020->cs_gpio))
+			gpio_set_value(fpc1020->cs_gpio, 0);
+#endif /* VENDOR_EDIT */
 
 		spi_message_init(&msg);
 		spi_message_add_tail(&cmd,  &msg);
@@ -1387,7 +1625,11 @@ int fpc1020_fetch_image(fpc1020_data_t *fpc1020,
 		if (error)
 			dev_err(&fpc1020->spi->dev, "spi_sync failed.\n");
 
-//		gpio_set_value(fpc1020->cs_gpio, 1);
+#ifndef VENDOR_EDIT
+		//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for HW Config
+		if (gpio_is_valid(fpc1020->cs_gpio))
+			gpio_set_value(fpc1020->cs_gpio, 1);
+#endif /* VENDOR_EDIT */
 	}
 
 	error = fpc1020_read_irq(fpc1020, true);
@@ -1407,6 +1649,177 @@ bool fpc1020_check_in_range_u64(u64 val, u64 min, u64 max)
 
 
 /* -------------------------------------------------------------------- */
+u32 fpc1020_calc_pixel_sum(u8 *buffer, size_t count)
+{
+	size_t index = count;
+	u32 sum = 0;
+
+	while(index)
+	{
+		index--;
+		sum += ((0xff - buffer[index]) / 8);
+	}
+	return sum;
+}
 
 
+/* -------------------------------------------------------------------- */
+static int fpc1020_set_finger_drive(fpc1020_data_t *fpc1020, bool enable)
+{
+
+	int error = 0;
+	u8 config;
+	fpc1020_reg_access_t reg;
+
+	dev_dbg(&fpc1020->spi->dev, "%s %s\n", __func__, (enable)? "ON":"OFF");
+
+	FPC1020_MK_REG_READ(reg, FPC102X_REG_FINGER_DRIVE_CONF, &config);
+	error = fpc1020_reg_access(fpc1020, &reg);
+	if (error)
+		goto out;
+
+	if (enable)
+		config |= 0x02;
+	else
+		config &= ~0x02;
+
+	FPC1020_MK_REG_WRITE(reg, FPC102X_REG_FINGER_DRIVE_CONF, &config);
+	error = fpc1020_reg_access(fpc1020, &reg);
+
+out:
+	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
+int fpc1020_calc_finger_detect_threshold_min(fpc1020_data_t *fpc1020)
+{
+	int error = 0;
+	int index;
+	int first_col, first_row, adc_groups, row_count;
+	u32 pixelsum[FPC1020_WAKEUP_DETECT_ZONE_COUNT] = {0, 0};
+	u32 temp_u32;
+
+	size_t image_size;
+
+	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
+
+	error = fpc1020_write_sensor_setup(fpc1020);
+
+	if (!error)
+		error = fpc1020_capture_finger_detect_settings(fpc1020);
+
+	if (!error)
+		error = fpc1020_set_finger_drive(fpc1020, false);
+
+	adc_groups = FPC1020_WAKEUP_DETECT_COLS	/ fpc1020->chip.adc_group_size;
+	image_size = (FPC1020_WAKEUP_DETECT_ROWS + 1) * adc_groups * fpc1020->chip.adc_group_size;
+	row_count = FPC1020_WAKEUP_DETECT_ROWS + 1;
+
+	index = FPC1020_WAKEUP_DETECT_ZONE_COUNT;
+	while (index && !error) {
+
+		index--;
+
+		first_col = fpc1020->setup.wakeup_detect_cols[index] / fpc1020->chip.adc_group_size;
+		first_row = fpc1020->setup.wakeup_detect_rows[index] - 1;
+
+		error = fpc1020_capture_set_crop(fpc1020,
+						first_col,
+						adc_groups,
+						first_row,
+						row_count);
+		if (!error) {
+			error = fpc1020_capture_buffer(fpc1020,
+						fpc1020->huge_buffer,
+						0,
+						image_size);
+		}
+
+		if (!error) {
+			pixelsum[index] = fpc1020_calc_pixel_sum(
+				fpc1020->huge_buffer + fpc1020->chip.adc_group_size,
+				image_size - fpc1020->chip.adc_group_size);
+		}
+	}
+
+	if (!error) {
+		temp_u32 = 0;
+
+		index = FPC1020_WAKEUP_DETECT_ZONE_COUNT;
+		while (index) {
+			index--;
+			if (pixelsum[index] > temp_u32)
+				temp_u32 = pixelsum[index];
+		}
+		error = (int)(temp_u32 / 2);
+
+		if (error >= 0xff)
+			error = -EINVAL;
+	}
+
+	dev_dbg(&fpc1020->spi->dev, "%s : %s %d\n",
+			__func__,
+			(error < 0) ? "Error" : "measured min =",
+			error);
+
+	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
+int fpc1020_set_finger_detect_threshold(fpc1020_data_t *fpc1020,
+					int measured_val)
+{
+	int error = 0;
+	int new_val;
+	u8 old_val = fpc1020->setup.finger_detect_threshold;
+
+	new_val = measured_val + 40; // Todo: awaiting calculated values
+
+	if ((measured_val < 0) || (new_val >= 0xff))
+		error = -EINVAL;
+
+	if (!error) {
+		fpc1020->setup.finger_detect_threshold = (u8)new_val;
+
+		dev_dbg(&fpc1020->spi->dev, "%s %d -> %d\n",
+					__func__,
+					old_val,
+					fpc1020->setup.finger_detect_threshold);
+	} else {
+		dev_err(&fpc1020->spi->dev,
+			"%s unable to set finger detect threshold %d\n",
+			__func__,
+			error);
+	}
+
+	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
+static int fpc1020_flush_adc(fpc1020_data_t *fpc1020)
+{
+	int error = 0;
+	const int adc_groups = 9;
+	const int row_count  = 1;
+	const int image_size = adc_groups * fpc1020->chip.adc_group_size * row_count;
+
+	dev_dbg(&fpc1020->spi->dev, "%s\n", __func__);
+
+	error = fpc1020_capture_set_crop(fpc1020, 0, adc_groups, 0, row_count);
+
+	if (!error) {
+		error = fpc1020_capture_buffer(fpc1020,
+						fpc1020->huge_buffer,
+						0,
+						image_size);
+	}
+
+	return error;
+}
+
+
+/* -------------------------------------------------------------------- */
 

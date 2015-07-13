@@ -35,8 +35,6 @@
 #include <linux/wakelock.h>
 #endif
 /* OPPO 2014-07-25 John.Xu@Audio.Driver Add end */
-
-
 struct lsm_priv {
 	struct snd_pcm_substream *substream;
 	struct lsm_client *lsm_client;
@@ -197,7 +195,7 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 				} else {
 /* OPPO 2014-07-25 John.Xu@Audio.Driver Add begin for fix sometime phone will go to sleep when get detect event */
 #ifdef VENDOR_EDIT
-				    if(event_status->status == 2) {
+				    if(prtd->event_status->status == 2) {
 				        pr_err("%s: Detect event 3second timeout wake lock \n",__func__);
 				        wake_lock_timeout(&prtd->timeout_wake_lock, msecs_to_jiffies(3000));
                     }
@@ -296,7 +294,6 @@ static int msm_lsm_open(struct snd_pcm_substream *substream)
             "SVA timeout wake lock");
 #endif
 /* OPPO 2014-07-25 John.Xu@Audio.Driver Add end */
-    
 	pr_debug("%s: Session ID %d\n", __func__, prtd->lsm_client->session);
 	prtd->lsm_client->started = false;
 	spin_lock_init(&prtd->event_lock);
@@ -311,36 +308,32 @@ static int msm_lsm_close(struct snd_pcm_substream *substream)
 	unsigned long flags;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct lsm_priv *prtd = runtime->private_data;
-    int ret;
+	int ret = 0;
 
-    pr_debug("%s\n", __func__);
-/* OPPO 2014-08-19 John.Xu@Audio.Driver Add begin for QCOM patch for SVA delay to de/register after native service being killed */
-#ifdef VENDOR_EDIT
-        if (prtd->lsm_client->started) {
-            ret = q6lsm_stop(prtd->lsm_client, true);
-            if (ret)
-                pr_err("%s: session stop failed, err = %d\n",
-                    __func__, ret);
-            else
-                pr_debug("%s: LSM client session stopped %d\n",
-                     __func__, ret);
-    
-            /*
-             * Go Ahead and try de-register sound model,
-             * even if stop failed
-             */
-            prtd->lsm_client->started = false;
-    
-            ret = q6lsm_deregister_sound_model(prtd->lsm_client);
-            if (ret)
-                pr_err("%s: dereg_snd_model failed, err = %d\n",
-                    __func__, ret);
-            else
-                pr_debug("%s: dereg_snd_model succesful\n",
-                     __func__);
-        }
-#endif
-/* OPPO 2014-08-19 John.Xu@Audio.Driver Add end */
+	pr_debug("%s\n", __func__);
+	if (prtd->lsm_client->started) {
+		ret = q6lsm_stop(prtd->lsm_client, true);
+		if (ret)
+			pr_err("%s: session stop failed, err = %d\n",
+				__func__, ret);
+		else
+			pr_debug("%s: LSM client session stopped %d\n",
+				 __func__, ret);
+
+		/*
+		 * Go Ahead and try de-register sound model,
+		 * even if stop failed
+		 */
+		prtd->lsm_client->started = false;
+
+		ret = q6lsm_deregister_sound_model(prtd->lsm_client);
+		if (ret)
+			pr_err("%s: dereg_snd_model failed, err = %d\n",
+				__func__, ret);
+		else
+			pr_debug("%s: dereg_snd_model succesful\n",
+				 __func__);
+	}
 
 	q6lsm_close(prtd->lsm_client);
 	q6lsm_client_free(prtd->lsm_client);
@@ -353,7 +346,7 @@ static int msm_lsm_close(struct snd_pcm_substream *substream)
 #endif
 /* OPPO 2014-07-25 John.Xu@Audio.Driver Add end */
 	spin_lock_irqsave(&prtd->event_lock, flags);
-	kfree(prtd->event_status);;
+	kfree(prtd->event_status);
 	prtd->event_status = NULL;
 	spin_unlock_irqrestore(&prtd->event_lock, flags);
 	kfree(prtd);

@@ -11,6 +11,7 @@
 #define LINUX_SPI_FPC1020_COMMON_H
 
 #define DEBUG
+#define CONFIG_INPUT_FPC1020_NAV
 
 #include <linux/cdev.h>
 #include <linux/gpio.h>
@@ -34,10 +35,15 @@
 extern const bool target_little_endian;
 
 #define FPC1020_DEV_NAME                        "fpc1020"
+#define FPC1020_TOUCH_PAD_DEV_NAME              "fpc1020tp"
 
+#define FPC1020_MAJOR				230
 #define FPC1020_SPI_CLOCK_SPEED			(8 * 1000000U)
 
 #define FPC1020_BUFFER_MAX_IMAGES		3
+
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for Hw Config
 #define FPC1020_PIXEL_ROWS                      160U
 
 #define FPC1020_PIXEL_COLUMNS                   160U
@@ -46,8 +52,10 @@ extern const bool target_little_endian;
                                                  FPC1020_PIXEL_ROWS)
 
 #define FPC1020_DEADPIXEL_THRESHOLD		11
+#endif /* VENDOR_EDIT */
+#define FPC1020_MAX_ADC_SETTINGS        (FPC1020_BUFFER_MAX_IMAGES + 1)
 
-#define FPC1020_DEFAULT_IRQ_TIMEOUT_MS		(100 * HZ / 1000)
+#define FPC1020_DEFAULT_IRQ_TIMEOUT_MS		(500 * HZ / 1000)
 
 #define FPC1020_STATUS_REG_RESET_VALUE 0x1e
 
@@ -73,6 +81,18 @@ extern const bool target_little_endian;
 #define FPC1020_RESET_HIGH1_US			100
 #define FPC1020_RESET_HIGH2_US			1250
 
+#define FPC1020_CAPTURE_WAIT_FINGER_DELAY_MS 	20
+
+#define NAV_IMAGE_WIDTH 128
+#define NAV_IMAGE_HEIGHT 8
+#define NAV_FRAME_SIZE NAV_IMAGE_WIDTH*NAV_IMAGE_HEIGHT
+
+#define FPC1020_WAKEUP_DETECT_ZONE_COUNT	2
+#define FPC1020_WAKEUP_DETECT_ROWS		8
+#define FPC1020_WAKEUP_DETECT_COLS		8
+
+#define FPC1020_PXL_BIAS_CTRL			0x0F00
+
 /* -------------------------------------------------------------------- */
 /* fpc1020 data types							*/
 /* -------------------------------------------------------------------- */
@@ -94,8 +114,7 @@ typedef enum {
 	FPC1020_CMD_ACTIVATE_IDLE_MODE		= 52,
 	FPC1020_CMD_CAPTURE_IMAGE		= 192,
 	FPC1020_CMD_READ_IMAGE			= 196,
-	FPC1020_CMD_SOFT_RESET			= 248,
-	FPC1020_CMD_ACTIVATE_TMP  = 0x55,
+	FPC1020_CMD_SOFT_RESET			= 248
 } fpc1020_cmd_t;
 
 typedef enum {
@@ -128,23 +147,55 @@ typedef struct fpc1020_worker_struct {
 } fpc1020_worker_t;
 
 typedef struct fpc1020_capture_struct {
-	fpc1020_capture_mode_t current_mode;
-	fpc1020_capture_state_t state;
-	u32                    read_offset;
-	u32                    available_bytes;
-	wait_queue_head_t      wq_data_avail;
-	int                    last_error;
-	bool read_pending_eof;
+	fpc1020_capture_mode_t	current_mode;
+	fpc1020_capture_state_t	state;
+	u32			read_offset;
+	u32			available_bytes;
+	wait_queue_head_t	wq_data_avail;
+	int			last_error;
+	bool			read_pending_eof;
+	bool			deferred_finger_up;
 } fpc1020_capture_task_t;
 
-typedef struct fpc1020_input_struct {
+#ifdef CONFIG_INPUT_FPC1020_NAV
+typedef struct fpc1020_nav_struct {
 	bool enabled;
-} fpc1020_input_task_t;
+
+	/*image based navigation parameter*/
+	u8 image_nav_row_start;
+	u8 image_nav_row_count;
+	u8 image_nav_col_start;
+	u8 image_nav_col_groups;
+
+	unsigned long time;
+	int tap_status;
+	u8 input_mode;
+	int nav_sum_x;
+	int nav_sum_y;
+	
+	u8 p_multiplier_x;
+	u8 p_multiplier_y;
+	u8 p_sensitivity_key;
+	u8 p_sensitivity_ptr;
+	u8 multiplier_key_accel;
+	u8 multiplier_ptr_accel;
+	u8 threshold_key_accel;
+	u8 threshold_ptr_accel;
+	u8 threshold_ptr_start;
+	u8 duration_ptr_clear;
+	u8 nav_finger_up_threshold;
+#ifdef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-29 Add for move parameter
+	int move_time_threshold;
+	int move_distance_threshold;
+#endif /* VENDOR_EDIT */
+} fpc1020_nav_task_t;
+#endif
 
 typedef struct fpc1020_setup {
-	u8 adc_gain[FPC1020_BUFFER_MAX_IMAGES];
-	u8 adc_shift[FPC1020_BUFFER_MAX_IMAGES];
-	u16 pxl_ctrl[FPC1020_BUFFER_MAX_IMAGES];
+	u8 adc_gain[FPC1020_MAX_ADC_SETTINGS];
+	u8 adc_shift[FPC1020_MAX_ADC_SETTINGS];
+	u16 pxl_ctrl[FPC1020_MAX_ADC_SETTINGS];
 	u8 capture_settings_mux;
 	u8 capture_count;
 	fpc1020_capture_mode_t capture_mode;
@@ -152,14 +203,20 @@ typedef struct fpc1020_setup {
 	u8 capture_row_count;	/* Rows <= 192      */
 	u8 capture_col_start;	/* ADC group 0-23   */
 	u8 capture_col_groups;	/* ADC groups, 1-24 */
+	u8 capture_finger_up_threshold;
+	u8 capture_finger_down_threshold;
+	u8 finger_detect_threshold;
+	u8 wakeup_detect_rows[FPC1020_WAKEUP_DETECT_ZONE_COUNT];
+	u8 wakeup_detect_cols[FPC1020_WAKEUP_DETECT_ZONE_COUNT];
 } fpc1020_setup_t;
 
 typedef struct fpc1020_diag {
 	const char *chip_id;	/* RO */
-	u8 selftest;		/* RO */
-	u8 spi_register;	/* RW */
-	u8 spi_regsize;		/* RO */
-	u8 spi_data;		/* RW */
+	u8  selftest;		/* RO */
+	u16 spi_register;	/* RW */
+	u8  spi_regsize;	/* RO */
+	u8  spi_data;		/* RW */
+	u16 last_capture_time;	/* RO*/
 } fpc1020_diag_t;
 
 typedef struct fpc1020_chip_info {
@@ -177,9 +234,16 @@ typedef struct {
 	struct cdev            cdev;
 	dev_t                  devno;
 	fpc1020_chip_info_t    chip;
-//	u32                    cs_gpio;
+#ifndef VENDOR_EDIT
+//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
+	u32                    cs_gpio;
+#endif /* VENDOR_EDIT */
 	u32                    reset_gpio;
 	u32                    irq_gpio;
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Add for Hw Config
+	u32                    vdden_gpio;  //ranfei
+#endif /* VENDOR_EDIT */
 	int                    irq;
 	wait_queue_head_t      wq_irq_return;
 	bool                   interrupt_done;
@@ -191,14 +255,29 @@ typedef struct {
 	fpc1020_setup_t        setup;
 	fpc1020_diag_t         diag;
 	bool                   soft_reset_enabled;
-//	struct regulator       *vcc_spi;
+#ifndef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-12 Remove for Hw Config
+	struct regulator       *vcc_spi;
 	struct regulator       *vdd_ana;
+#endif /* VENDOR_EDIT */
 	struct regulator       *vdd_io;
 	bool                   power_enabled;
 	int                    vddtx_mv;
 	bool                   txout_boost;
+
+#ifdef CONFIG_INPUT_FPC1020_NAV
 	struct input_dev	*input_dev;
-	fpc1020_input_task_t	input;
+	struct input_dev	*touch_pad_dev;
+	fpc1020_nav_task_t	nav;
+	u8* prev_img_buf;
+	u8* cur_img_buf;
+#ifdef VENDOR_EDIT
+	//Lycan.Wang@Prd.BasicDrv, 2014-09-29 Add for navigation move event
+	unsigned long 		touch_time;
+	int 				move_distance;	
+	unsigned int 		moving_key;
+#endif /* VENDOR_EDIT */
+#endif
 } fpc1020_data_t;
 
 typedef struct {
@@ -260,6 +339,11 @@ extern int fpc1020_fetch_image(fpc1020_data_t *fpc1020,
 				size_t buff_size);
 
 extern bool fpc1020_check_in_range_u64(u64 val, u64 min, u64 max);
+
+extern int fpc1020_calc_finger_detect_threshold_min(fpc1020_data_t *fpc1020);
+
+extern int fpc1020_set_finger_detect_threshold(fpc1020_data_t *fpc1020,
+						int measured_val);
 
 #define FPC1020_MK_REG_READ_BYTES(__dst, __reg, __count, __ptr) {	\
 	(__dst).reg      = FPC1020_REG_TO_ACTUAL((__reg));		\

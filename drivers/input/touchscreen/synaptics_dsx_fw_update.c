@@ -27,22 +27,25 @@
 #include "synaptics_dsx.h"
 #include "synaptics_dsx_i2c.h"
 #include "synaptics_firmware_youngfast.h"
+#include "synaptics_firmware_truly.h"
+#include "synaptics_firmware_truly_jdi.h"
+#include "synaptics_firmware_tpk_gff.h"
 #if defined CONFIG_OPPO_MSM_14001  //for 14001's wintek tp
 #include "synaptics_firmware_tpk_14001.h"
 #include "synaptics_firmware_tpk_find7s.h"
 #include "synaptics_firmware_wintek_14001.h"
-#elif defined CONFIG_OPPO_MSM_FIND7
+#elif defined CONFIG_OPPO_MSM_FIND7 || defined CONFIG_OPPO_MSM_13077 || defined CONFIG_OPPO_MSM_FIND7WX
 #include "synaptics_firmware_tpk.h"
 #include "synaptics_firmware_tpk_find7s.h"
 #include "synaptics_firmware_wintek.h"
-#elif defined CONFIG_OPPO_MSM_FIND7WX
-#include "synaptics_firmware_tpk.h"
-#include "synaptics_firmware_tpk_find7s.h"
-#include "synaptics_firmware_wintek.h"
-#elif defined CONFIG_OPPO_MSM_14021
+#elif defined CONFIG_OPPO_MSM_14021 || defined(CONFIG_OPPO_MSM_14024)
+#ifdef OPPO_CTA_TEST
+#include "synaptics_firmware_tpk_n3_cta.h"          // tpk , version = 0x14021210
+#include "synaptics_firmware_wintek_n3_cta.h"       // wintek, version = 0x14021419
+#else
 #include "synaptics_firmware_tpk_n3.h"
-#include "synaptics_firmware_tpk_find7s.h"
 #include "synaptics_firmware_wintek_n3.h"
+#endif
 #endif
 
 #include <linux/proc_fs.h>
@@ -53,7 +56,7 @@
 
 #define FW_IMAGE_NAME "synaptics/startup_fw_update.img"
 #define DO_STARTUP_FW_UPDATE
-#define STARTUP_FW_UPDATE_DELAY_MS 200 /* ms */
+#define STARTUP_FW_UPDATE_DELAY_MS 5 /* ms */
 #define FORCE_UPDATE false
 #define DO_LOCKDOWN false
 
@@ -114,6 +117,8 @@
 
 #define MIN_SLEEP_TIME_US 50
 #define MAX_SLEEP_TIME_US 100
+
+extern int Lcd_type;
 
 static ssize_t fwu_sysfs_show_image(struct file *data_file,
 		struct kobject *kobj, struct bin_attribute *attributes,
@@ -1326,6 +1331,7 @@ static int fwu_start_reflash(void)
 	struct f01_device_status f01_device_status;
 	const unsigned char *fw_image;
 	const struct firmware *fw_entry = NULL;
+    unsigned char command = 0x01;
 
 	f01_cmd_base_addr = fwu->f01_fd.cmd_base_addr;
 
@@ -1432,7 +1438,16 @@ static int fwu_start_reflash(void)
 	}
 
 exit:
-	fwu->rmi4_data->reset_device(fwu->rmi4_data, f01_cmd_base_addr);
+    if(flash_area)
+    {
+        // reset tp
+        fwu->fn_ptr->write(fwu->rmi4_data,
+        			fwu->f01_fd.cmd_base_addr,
+        			&command,
+        			sizeof(command));    
+        
+    	fwu->rmi4_data->reset_device(fwu->rmi4_data, f01_cmd_base_addr);
+    }
 
 	if (fw_entry)
 		release_firmware(fw_entry);
@@ -1447,12 +1462,15 @@ exit:
 static int synaptics_rmi4_fwu_init_func(struct synaptics_rmi4_data *rmi4_data) ;
 
 //return current firmware version
-int synaptics_rmi4_get_firmware_version(int vendor_id) {
-	if(vendor_id == TP_VENDOR_YOUNGFAST) {
+int synaptics_rmi4_get_firmware_version(int vendor_id) 
+{
+	if(vendor_id == TP_VENDOR_YOUNGFAST) 
+    {
 		return FIRMWARE_YOUNGFAST_VERSION ;
 	}
-	else if(vendor_id == TP_VENDOR_TPK) {
-#ifdef CONFIG_OPPO_MSM_14021
+	else if(vendor_id == TP_VENDOR_TPK) 
+    {
+#if (defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024))
         return FIRMWARE_TPK_VERSION;
 #else
 		if (get_pcb_version() >= HW_VERSION__21) 
@@ -1461,12 +1479,23 @@ int synaptics_rmi4_get_firmware_version(int vendor_id) {
 			return FIRMWARE_TPK_VERSION;
 #endif
 	}
-	else if(vendor_id == TP_VENDOR_TRULY) {
-		return 0;
+	else if(vendor_id == TP_VENDOR_TRULY) 
+    {
+        if(Lcd_type == 0)
+            return FIRMWARE_TRULY_VERSION;
+        else 
+            return FIRMWARE_TRULY_JDI_VERSION;
 	}
-	else if(vendor_id == TP_VENDOR_WINTEK) {
+	else if(vendor_id == TP_VENDOR_WINTEK) 
+    {
 		return FIRMWARE_WINTEK_VERSION ;
-	} else {
+	} 
+	else if(vendor_id == TP_VENDOR_TPK_GFF) 
+    {
+		return FIRMWARE_TPK_GFF_VERSION ;
+	}     
+    else 
+    {
 		return 0 ;
 	}
 }
@@ -1558,27 +1587,36 @@ static unsigned char* fwu_rmi4_get_firmware_data(void) {
 	else if(vendor_id == TP_VENDOR_YOUNGFAST)
 		firmwaredata = (unsigned char*)Syna_Firmware_Data_youngfast ;
 	else if(vendor_id == TP_VENDOR_TPK) {
-#if defined(CONFIG_OPPO_MSM_14001)|| defined(CONFIG_OPPO_MSM_FIND7) ||defined(CONFIG_OPPO_MSM_FIND7WX)
+#if defined(CONFIG_OPPO_MSM_14001)|| defined(CONFIG_OPPO_MSM_FIND7)	
 		if (get_pcb_version() >= HW_VERSION__21)
 			firmwaredata = (unsigned char*)Syna_Firmware_Data_tpk_find7s ;
 		else
 			firmwaredata = (unsigned char*)Syna_Firmware_Data_tpk ;
-#elif defined(CONFIG_OPPO_MSM_14021)
+#elif defined(CONFIG_OPPO_MSM_14021) || defined(CONFIG_OPPO_MSM_14024)
 		firmwaredata = (unsigned char*)Syna_Firmware_Data_tpk ;
 #endif
 	}
 	else if(vendor_id == TP_VENDOR_WINTEK)
 		firmwaredata = (unsigned char*)Syna_Firmware_Data_Wintek;
-	
+	else if(vendor_id == TP_VENDOR_TRULY)
+    {   
+        if(Lcd_type == 0)
+    		firmwaredata = (unsigned char*)Syna_Firmware_Data_Truly;	
+        else
+            firmwaredata = (unsigned char*)Syna_Firmware_Data_Truly_JDI;            
+    }
+    
+	else if(vendor_id == TP_VENDOR_TPK_GFF)
+		firmwaredata = (unsigned char*)Syna_Firmware_Data_tpk_gff;	
 
 	return firmwaredata ;
-
-	
 }
 
 static void fwu_startup_fw_update_work(struct work_struct *work)
 {
 	unsigned char* firmwaredata = 0;
+
+    printk("%s start . \n", __func__);
 
 	firmwaredata = fwu_rmi4_get_firmware_data() ;
 	if(!firmwaredata) {
@@ -1593,6 +1631,8 @@ static void fwu_startup_fw_update_work(struct work_struct *work)
 	fwu->image_name[0] = 0;
 
 	fwu->rmi4_data->bcontinue = 1 ;
+
+    printk("%s end . \n", __func__);
 
 	return;
 }
@@ -1884,6 +1924,8 @@ static int synaptics_rmi4_fwu_init(struct synaptics_rmi4_data *rmi4_data)
 	int retval;
 	unsigned char attr_count;
 
+    printk("%s start . \n", __func__);
+    
 	fwu = kzalloc(sizeof(*fwu), GFP_KERNEL);
 	if (!fwu) {
 		dev_err(&rmi4_data->i2c_client->dev,
@@ -1945,10 +1987,10 @@ static int synaptics_rmi4_fwu_init(struct synaptics_rmi4_data *rmi4_data)
 #ifdef DO_STARTUP_FW_UPDATE
 	fwu->fwu_workqueue = create_singlethread_workqueue("fwu_workqueue");
 	INIT_DELAYED_WORK(&fwu->fwu_work, fwu_startup_fw_update_work);
-	queue_delayed_work(fwu->fwu_workqueue,
-			&fwu->fwu_work,
-			msecs_to_jiffies(STARTUP_FW_UPDATE_DELAY_MS));
+	queue_delayed_work(fwu->fwu_workqueue, &fwu->fwu_work, msecs_to_jiffies(STARTUP_FW_UPDATE_DELAY_MS));
 #endif
+
+    printk("%s end . \n", __func__);
 
 	return 0;
 

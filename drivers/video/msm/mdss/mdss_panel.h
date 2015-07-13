@@ -127,6 +127,15 @@ struct mdss_panel_recovery {
 				 - 1 clock enable
  * @MDSS_EVENT_ENABLE_PARTIAL_UPDATE: Event to update ROI of the panel.
  * @MDSS_EVENT_DSI_CMDLIST_KOFF: acquire dsi_mdp_busy lock before kickoff.
+ * @MDSS_EVENT_DSI_ULPS_CTRL:	Event to configure Ultra Lower Power Saving
+ *				mode for the DSI data and clock lanes. The
+ *				event arguments can have one of these values:
+ *				- 0: Disable ULPS mode
+ *				- 1: Enable ULPS mode
+ * @MDSS_EVENT_DSI_DYNAMIC_SWITCH: Event to update the dsi driver structures
+ *				based on the dsi mode passed as argument.
+ *				- 0: update to video mode
+ *				- 1: update to command mode
  */
 enum mdss_intf_events {
 	MDSS_EVENT_RESET = 1,
@@ -145,6 +154,9 @@ enum mdss_intf_events {
 	MDSS_EVENT_PANEL_CLK_CTRL,
 	MDSS_EVENT_DSI_CMDLIST_KOFF,
 	MDSS_EVENT_ENABLE_PARTIAL_UPDATE,
+	MDSS_EVENT_DSI_ULPS_CTRL,
+	MDSS_EVENT_REGISTER_RECOVERY_HANDLER,
+	MDSS_EVENT_DSI_DYNAMIC_SWITCH,
 };
 
 struct lcd_panel_info {
@@ -202,6 +214,7 @@ struct mipi_panel_info {
 	char hbp_power_stop;
 	char hsa_power_stop;
 	char eof_bllp_power_stop;
+	char last_line_interleave_en;
 	char bllp_power_stop;
 	char traffic_mode;
 	char frame_rate;
@@ -214,6 +227,9 @@ struct mipi_panel_info {
 	char stream;	/* 0 or 1 */
 	char mdp_trigger;
 	char dma_trigger;
+	/*Dynamic Switch Support*/
+	bool dynamic_switch_enabled;
+	u32 pixel_packing;
 	u32 dsi_pclk_rate;
 	/* The packet-size should not bet changed */
 	char no_max_pkt_size;
@@ -268,6 +284,17 @@ struct fbc_panel_info {
 	u32 lossy_mode_idx;
 };
 
+struct mdss_mdp_pp_tear_check {
+	u32 tear_check_en;
+	u32 sync_cfg_height;
+	u32 vsync_init_val;
+	u32 sync_threshold_start;
+	u32 sync_threshold_continue;
+	u32 start_pos;
+	u32 rd_ptr_irq;
+	u32 refx100;
+};
+
 struct mdss_panel_info {
 	u32 xres;
 	u32 yres;
@@ -300,8 +327,18 @@ struct mdss_panel_info {
 	int pwm_period;
 	u32 mode_gpio_state;
 	bool dynamic_fps;
+	bool ulps_feature_enabled;
+	bool esd_check_enabled;
 	char dfps_update;
 	int new_fps;
+	int panel_max_fps;
+	int panel_max_vtotal;
+	u32 xstart_pix_align;
+	u32 width_pix_align;
+	u32 ystart_pix_align;
+	u32 height_pix_align;
+	u32 min_width;
+	u32 min_height;
 
 	u32 cont_splash_enabled;
 	u32 partial_update_enabled;
@@ -309,6 +346,10 @@ struct mdss_panel_info {
 	u32 panel_power_on;
 
 	uint32_t panel_dead;
+	bool dynamic_switch_pending;
+	bool is_lpm_mode;
+
+	struct mdss_mdp_pp_tear_check te;
 
 	struct lcd_panel_info lcdc;
 	struct fbc_panel_info fbc;

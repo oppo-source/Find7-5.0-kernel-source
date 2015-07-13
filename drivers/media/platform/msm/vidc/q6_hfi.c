@@ -1033,6 +1033,11 @@ static int q6_hfi_session_set_property(void *sess,
 		dprintk(VIDC_ERR, "Invalid Params");
 		return -EINVAL;
 	}
+	if (ptype == HAL_PARAM_VDEC_CONTINUE_DATA_TRANSFER) {
+		dprintk(VIDC_WARN, "Smoothstreaming is not supported\n");
+		return -ENOTSUPP;
+	}
+
 	dev = session->device;
 	dprintk(VIDC_DBG, "in set_prop,with prop id: 0x%x", ptype);
 
@@ -1179,14 +1184,6 @@ static int q6_hfi_session_get_property(void *sess,
 		break;
 	}
 	return 0;
-}
-
-static int q6_hfi_unset_ocmem(void *dev)
-{
-	(void)dev;
-
-	/* Q6 does not support ocmem */
-	return -EINVAL;
 }
 
 static int q6_hfi_iommu_get_domain_partition(void *dev, u32 flags,
@@ -1369,7 +1366,6 @@ static void q6_init_hfi_callbacks(struct hfi_device *hdev)
 	hdev->session_flush = q6_hfi_session_flush;
 	hdev->session_set_property = q6_hfi_session_set_property;
 	hdev->session_get_property = q6_hfi_session_get_property;
-	hdev->unset_ocmem = q6_hfi_unset_ocmem;
 	hdev->iommu_get_domain_partition = q6_hfi_iommu_get_domain_partition;
 	hdev->load_fw = q6_hfi_load_fw;
 	hdev->unload_fw = q6_hfi_unload_fw;

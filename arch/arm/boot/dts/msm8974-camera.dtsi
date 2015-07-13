@@ -176,43 +176,6 @@
 		vdd-supply = <&gdsc_vfe>;
 	};
 
-/*ifdef VENDOR_EDIT*/
-/*
-	led_flash0: qcom,camera-led-flash {
-		cell-index = <0>;
-		compatible = "qcom,camera-led-flash";
-		qcom,flash-type = <1>;
-		qcom,flash-source = <&pm8941_flash0 &pm8941_flash1>;
-		qcom,torch-source = <&pm8941_torch>;
-	};
-*/
-
-	adp1660: qcom,camera-led-flash-src1 {
-		cell-index = <0>;
-		compatible = "qcom,camera-led-cci-src";
-		qcom,name = "adp1660";
-		qcom,cci-master = <0>;
-		qcom,slave-id = <0x30>;
-		qcom,chip-id-reg = <0x00>;
-		qcom,chip-id = <0x18>;
-		qcom,fault-info-reg = <0x0c>;
-		qcom,max-torch-current = <200>;
-		qcom,max-flash-current = <750>;
-		qcom,gpio-en = <54>;
-		qcom,gpio-torch-en = <55>;
-		qcom,gpio-strobe-en = <56>;
-		qcom,regulator-name = "8941_lvs3";
-	};
-
-	led_flash0: qcom,camera-led-flash {
-		cell-index = <0>;
-		compatible = "qcom,camera-led-flash";
-		qcom,flash-source = <&pm8941_flash0 &pm8941_flash1>;
-		qcom,torch-source = <&pm8941_torch>;
-		qcom,flash-cci-source = <&adp1660>;
-		qcom,flash-type = <1>;
-	};
-/*endif */	
 	cci: qcom,cci@fda0C000 {
 		cell-index = <0>;
 		compatible = "qcom,cci";
@@ -241,8 +204,6 @@
 	};
 };
 
-/*ifndef OPPO_FIND7*/
-/*
 &master0 {
 	qcom,hw-thigh = <78>;
 	qcom,hw-tlow = <114>;
@@ -270,34 +231,3 @@
 	qcom,hw-tsp = <1>;
 	status = "ok";
 };
-*/
-/*else*/
-
-&master0 {
-	qcom,hw-thigh = <20>; 
-	qcom,hw-tlow = <28>; 
-	qcom,hw-tsu-sto = <50>; 
-	qcom,hw-tsu-sta = <50>; 
-	qcom,hw-thd-dat = <13>; 
-	qcom,hw-thd-sta = <30>; 
-	qcom,hw-tbuf = <25>; 
-	qcom,hw-scl-stretch-en = <0>; 
-	qcom,hw-trdhld = <6>; 
-	qcom,hw-tsp = <3>; 
-	status = "ok";
-};
-
-&master1 {
-	qcom,hw-thigh = <20>; 
-	qcom,hw-tlow = <28>; 
-	qcom,hw-tsu-sto = <50>; 
-	qcom,hw-tsu-sta = <50>; 
-	qcom,hw-thd-dat = <13>; 
-	qcom,hw-thd-sta = <30>; 
-	qcom,hw-tbuf = <25>; 
-	qcom,hw-scl-stretch-en = <0>; 
-	qcom,hw-trdhld = <6>; 
-	qcom,hw-tsp = <3>; 
-	status = "ok";
-};
-/*endif*/

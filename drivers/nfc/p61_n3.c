@@ -36,13 +36,15 @@
 #include <linux/sched.h>
 #include <linux/poll.h>
 #include <linux/timer.h>
-
+//OPPO yuyi 2014-09-24 add begin for GPIO EVB and EVT compatible
+#include <linux/pcb_version.h>
+//OPPO yuyi 2014-09-24 add end for GPIO EVB and EVT compatible
 #define DBG_MODULE 0
 //#define TIMER_ENABLE 
 #define TIMER_ENABLE 0
 #define IRQ_ENABLE 1
 #if DBG_MODULE
-#define NFC_DBG_MSG(msg...) printk(KERN_ERR "[NFC PN61] :  " msg);
+#define NFC_DBG_MSG(msg...) printk(KERN_DEBUG "[NFC PN61] :  " msg);
 #else
 #define NFC_DBG_MSG(msg...)
 #endif
@@ -50,7 +52,9 @@
 #define NFC_ERR_MSG(msg...) printk(KERN_ERR "[NFC PN61] : " msg );
 
 #define P61_IRQ   34 /* this is the same used in omap3beagle.c */
-#define P61_RST   23
+//OPPO yuyi 2014-09-24 modify begin for GPIO EVB and EVT compatible
+#define P61_RST   (get_pcb_version() > HW_VERSION__30 ? 85 : 23)
+//OPPO yuyi 2014-09-24 modify end for GPIO EVB and EVT compatible
 
 #define P61_mosi   45
 #define P61_somi   46
@@ -174,7 +178,7 @@ static int start_timer(void)
     ret = mod_timer( &recovery_timer, jiffies + msecs_to_jiffies(2000) );
     if (ret) 
     {
-       printk(KERN_INFO "Error in mod_timer\n");
+       printk(KERN_ERR "Error in mod_timer\n");
     }
     else
     {
@@ -519,11 +523,11 @@ static ssize_t p61_dev_sendData(struct file *filp, const char __user *buf,
 {
 	int ret=-1;
 	init();
-	printk("p61_dev_sendData %d - Enter \n",count);
+	NFC_DBG_MSG("p61_dev_sendData %d - Enter \n",count);
 	if(count<=ifs)
 	{
 		ret = sendFrame(filp,buf, PH_SCAL_T1_SINGLE_FRAME,count);
-		printk("Vaue of count_status is %d \n",ret);
+		NFC_DBG_MSG("Vaue of count_status is %d \n",ret);
 	}
 	else
 	{
@@ -540,17 +544,15 @@ static long  p61_dev_ioctl(struct file *filp, unsigned int cmd,
 	int ret;
 	struct p61_dev *p61_dev=NULL;
 	uint8_t buf[100];
-	//NFC_DBG_MSG(KERN_ALERT "p61_dev_ioctl-Enter %x arg = 0x%x\n",cmd, arg);
+	NFC_DBG_MSG("p61_dev_ioctl-Enter cmd = %x \n",cmd);
 	p61_dev = filp->private_data;
 	p61_dev->ven_gpio = P61_RST;
-	printk("p61_dev_ioctl enter\n");
 
 	switch (cmd) {
 	case P61_SET_PWR:
-		NFC_DBG_MSG(KERN_ALERT "P61_SET_PWR-Enter P61_RST = 0x%x\n", P61_RST);
+		printk("P61_SET_PWR-Enter P61_RST = 0x%x\n", P61_RST);
 		if (arg == 2)
         {
-			printk("p61_dev_ioctl   download firmware \n");
 			/* power on with firmware download (requires hw reset)*/
 			gpio_set_value(P61_RST, 1);
 			NFC_DBG_MSG(KERN_ALERT "p61_dev_ioctl-1\n");
@@ -565,13 +567,11 @@ static long  p61_dev_ioctl(struct file *filp, unsigned int cmd,
 			msleep(20);
 
 		} else if (arg == 1) {
-			printk("p61_dev_ioctl   power on \n");
 			/* power on */
 			NFC_DBG_MSG(KERN_ALERT "p61_dev_ioctl-1 (arg = 1)\n");
 			gpio_set_value(P61_RST, 1);
 
 		} else  if (arg == 0) {
-			printk("p61_dev_ioctl   power off \n");
 			/* power off */
 			NFC_DBG_MSG(KERN_ALERT "p61_dev_ioctl-0 (arg = 0)\n");
 			gpio_set_value(P61_RST, 0);
@@ -1126,14 +1126,14 @@ static int __devinit p61_probe(struct spi_device *spi)
 		goto fail_gpio;
 	}
 
-	NFC_ERR_MSG("gpio_request returned = 0x%x\n", ret);
+	NFC_DBG_MSG("gpio_request returned = 0x%x\n", ret);
 	ret = gpio_direction_output(P61_RST,0);
 	if (ret < 0)
 	{
 		NFC_ERR_MSG("p61 gpio rst request failed gpio = 0x%x\n", P61_RST);
 		goto fail_gpio;
 	}
-	NFC_ERR_MSG("gpio_direction_output returned = 0x%x\n", ret);
+	NFC_DBG_MSG("gpio_direction_output returned = 0x%x\n", ret);
 
 	
 #ifdef IRQ_ENABLE
@@ -1172,8 +1172,8 @@ static int __devinit p61_probe(struct spi_device *spi)
 	p61_dev -> ven_gpio = P61_RST;
 	
 	gpio_set_value(P61_RST, 1);
-	msleep(20);
-	printk("p61_dev->rst_gpio = %d\n ",P61_RST);
+	//msleep(20);
+	NFC_DBG_MSG("p61_dev->rst_gpio = %d\n ",P61_RST);
 #ifdef IRQ_ENABLE
 	p61_dev->irq_gpio = P61_IRQ;
 #endif

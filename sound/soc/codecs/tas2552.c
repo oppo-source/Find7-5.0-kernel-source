@@ -33,6 +33,8 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <sound/soc.h>
+#include <linux/hrtimer.h>
+#include <linux/workqueue.h>
 
 #ifdef CONFIG_OPPO_MSM_14021
 /* xiaojun.lv@PhoneDpt.AudioDrv, 2014/06/25, add for 14021 tas2552 smartPA driver */
@@ -42,8 +44,31 @@
 
 #define I2C_RETRY_DELAY		5 /* ms */
 #define I2C_RETRIES		5
+#define SPK_POP_DELAY 35000000//10000000 /* unit ns, 10ms */
 
+extern void create_opalum_proc(void);
 static struct i2c_client *tas2552_client;
+static int opalum_proc_created = 0; //John.Xu@Audio.Driver Add begin for F0 test 
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, add timer and workqueue for avoid pop sound */
+struct hrtimer speaker_timer;
+static struct work_struct speaker_work;
+static struct workqueue_struct * speaker_workqueue = NULL;
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, add timer and workqueue for avoid pop sound end */
+
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/25 add for tas2552 current limit */
+/* 0x0---1.5A 
+ * 0x1---2.0A
+ * 0x2---2.5A default
+ * 0x3---3.0A 
+ */
+enum{
+    TAS2552_CURRENT_1P5A = 0x0,
+    TAS2552_CURRENT_2P0A = 0x1,
+    TAS2552_CURRENT_2P5A = 0x2,
+    TAS2552_CURRENT_3P0A = 0x3,
+    TAS2552_CURRENT_MAX,
+}TAS2552_CURRENT_E;
+static u8 tas2552_current = TAS2552_CURRENT_2P5A; //2.5A
 
 struct tas2552_data {
 	uint8_t power_state;
@@ -51,19 +76,30 @@ struct tas2552_data {
 };
 
 static const u8 tas2552_reg_init[][2] = {
-    {0x01,0x12},
+    {0x01,0x16},//init to mute and power down
     {0x08,0x10},
-    {0x03,0x5D},
+    {0x03,0xDD},//init to analog input
     {0x04,0x00},
     {0x05,0x10},
     {0x06,0x00},
     {0x07,0xC8},
     {0x09,0x00},
     {0x0A,0x00},
-    {0x12,0x15},
+    {0x12,0x15},//14dB
     {0x14,0x0F},
     {0x0D,0xC0},
     {0x02,0xEA},
+    {0x01,0x12},
+};
+
+/* Boost Current Limit register set sequence */
+static const u8 tas2552_reg_current[][2] = {
+    {0x21,0x02},
+    {0x21,0x01},
+    {0x21,0x04},
+    {0x21,0x07},
+    {0x32,0xAF},//current limit register
+    {0x21,0x07},
 };
 
 
@@ -181,51 +217,145 @@ error:
 	return retval;
 }
 
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, add timer and workqueue for avoid pop sound */
+static enum hrtimer_restart speaker_timer_func(struct hrtimer *timer)
+{
+    queue_work(speaker_workqueue, &speaker_work);
+    return HRTIMER_NORESTART;
+}
+
+void speaker_work_callback(struct work_struct *work)
+{
+    struct tas2552_data *tas2552 = i2c_get_clientdata(tas2552_client);
+    tas2552_reg_write(tas2552, TAS2552_CFG3_REG, 0x00, 0x80);
+    pr_info("%s exit\n", __func__);
+    return;
+}
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, add timer and workqueue for avoid pop sound end*/
+
+static int tas2552_reset(void)
+{
+    int retval = 0;
+    struct tas2552_data *tas2552 = i2c_get_clientdata(tas2552_client);
+    retval = tas2552_reg_write(tas2552, 0x01, 0x01, 0xff);
+    mdelay(1);
+    return retval;
+}
+
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/25 add for tas2552 current limit */
+static int tas2552_set_current(void)
+{
+    int i = 0, retval = 0;
+    u8 cur = 0;
+    struct tas2552_data *tas2552 = i2c_get_clientdata(tas2552_client);
+    pr_info("%s tas2552_current:0x%02x\n", __func__, tas2552_current);
+    /* if current below 2.5A, means need to modify the PGA gain,
+     * because everytime turn on the tas2552, we reset it, after reset,
+     * the gain is reset, so we need to modify it everytime to 8dB */
+     
+    if (tas2552_current < TAS2552_CURRENT_2P5A)
+    {
+        tas2552_reg_read(tas2552, TAS2552_PGA_GAIN_REG, &cur);
+        pr_debug("gain bf reg:0x12 value:0x%02x\n", cur);
+        cur = 0x0F;                    //0x0F --- 8dB
+        retval = tas2552_reg_write(tas2552, TAS2552_PGA_GAIN_REG, cur, 0xff);
+        pr_debug("gain af reg:0x12 value:0x%02x\n", cur);
+    }
+    else
+    {
+        tas2552_reg_read(tas2552, TAS2552_PGA_GAIN_REG, &cur);
+        pr_debug("recover gain bf reg:0x12 value:0x%02x\n", cur);
+        cur = 0x15;                    //0x15 --- 14dB
+        retval = tas2552_reg_write(tas2552, TAS2552_PGA_GAIN_REG, cur, 0xff);
+        pr_debug("recover gain af reg:0x12 value:0x%02x\n", cur);
+    }
+	for (i = 0; i < ARRAY_SIZE(tas2552_reg_current); i++) 
+	{
+	    if (tas2552_reg_current[i][0] == 0x32)//set current reg
+	    {
+	        tas2552_reg_read(tas2552, tas2552_reg_current[i][0], &cur);
+	        pr_debug("bf reg:0x%02x value:0x%02x\n", tas2552_reg_current[i][0], cur);
+	        cur &= 0x3f;                    //clear the bit 7 and bit 6
+	        cur |= (tas2552_current << 6);  //set the bit 7 and bit 6 for current
+	        retval = tas2552_reg_write(tas2552, tas2552_reg_current[i][0], cur, 0xff);
+	        pr_debug("af reg:0x%02x value:0x%02x\n", tas2552_reg_current[i][0], cur);
+	        continue;
+	    }
+		retval = tas2552_reg_write(tas2552, tas2552_reg_current[i][0],
+					tas2552_reg_current[i][1], 0xff);
+		pr_debug("reg:0x%02x value:0x%02x\n", tas2552_reg_current[i][0], tas2552_reg_current[i][1]);
+		if (retval < 0)
+		{
+		    return retval;
+		}
+	}
+	return retval;
+}
+
 static int tas2552_init_reg(void)
 {
 	int i = 0, retval = 0;
 	struct tas2552_data *tas2552 = i2c_get_clientdata(tas2552_client);
 
+    if (tas2552_reset() != 0)
+        goto error;
+    
 	/* Initialize device registers */
 	for (i = 0; i < ARRAY_SIZE(tas2552_reg_init); i++) {
 		retval = tas2552_reg_write(tas2552, tas2552_reg_init[i][0],
 					tas2552_reg_init[i][1], 0xff);
-		printk("reg:0x%02x value:0x%02x\n", tas2552_reg_init[i][0], tas2552_reg_init[i][1]);			
+		pr_debug("reg:0x%02x value:0x%02x\n", tas2552_reg_init[i][0], tas2552_reg_init[i][1]);			
 		if (retval != 0)
 			goto error;
 	}
-
+	tas2552_set_current(); //set the tas2552 current
 error:
 	return retval;
 
 }
 
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/25 add for tas2552 current limit */
+void tas2552_current_set(u8 cur)
+{
+    pr_info("%s tas2552_current:%d -> %d\n", __func__, tas2552_current, cur);
+    if ((tas2552_current != cur) && (cur < TAS2552_CURRENT_MAX))
+    {
+        tas2552_current = cur;
+        tas2552_set_current(); //set the current immediate
+    }
+    return;
+}
+EXPORT_SYMBOL_GPL(tas2552_current_set);
+
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, new sequence for avoid pop sound */
 void tas2552_ext_amp_on(int on)
 {
 	struct tas2552_data *tas2552 = i2c_get_clientdata(tas2552_client);
-	pr_info("tas2552 amp event %d", on);
+	pr_info("tas2552 amp event %d\n", on);
 	if (!tas2552)
 	{
-	    pr_err("tas2552 do not probed,please check !!!!");
+	    pr_err("tas2552 do not probed,please check !!!!\n");
 	    return;
 	}
 	if (on)
 	{
-	    if (tas2552->enable_gpio > 0)
-	    {
-	        gpio_set_value(tas2552->enable_gpio, 1);
-	    }
+	    tas2552_init_reg();
 		tas2552_reg_write(tas2552, TAS2552_CFG1_REG, 0,
 						TAS2552_SHUTDOWN);
+		tas2552_reg_write(tas2552, TAS2552_CFG1_REG, 0,
+						TAS2552_MUTE);
+		//start timer to avoid pop
+		pr_info("%s hrtimer_start\n", __func__);
+		hrtimer_start(&speaker_timer, ktime_set(0, SPK_POP_DELAY), HRTIMER_MODE_REL);
     }
 	else
 	{
+		tas2552_reg_write(tas2552, TAS2552_CFG3_REG, 0x80, 0x80);//switch analog input to avoid pop
+		tas2552_reg_write(tas2552, TAS2552_CFG1_REG, TAS2552_MUTE,
+						TAS2552_MUTE);
+		msleep(10);				
 		tas2552_reg_write(tas2552, TAS2552_CFG1_REG, TAS2552_SHUTDOWN,
 						TAS2552_SHUTDOWN);
-	    if (tas2552->enable_gpio > 0)
-	    {
-	        gpio_set_value(tas2552->enable_gpio, 0);
-	    }
     }
 }
 EXPORT_SYMBOL_GPL(tas2552_ext_amp_on);
@@ -401,6 +531,10 @@ static int __devinit tas2552_probe(struct i2c_client *client,
 			tas2552->enable_gpio = 0;
 		}
 	}
+	if (tas2552->enable_gpio > 0)
+	{
+	    gpio_set_value(tas2552->enable_gpio, 1);
+	}
 	
     tas2552->power_state = 1;
     
@@ -416,8 +550,24 @@ static int __devinit tas2552_probe(struct i2c_client *client,
 	/* setup debug fs interfaces */
 	tas2552_setup_debugfs(tas2552);
 
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, add timer and workqueue for avoid pop sound */
+    /* add timer for avoid pop sound */
+    hrtimer_init(&speaker_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+    speaker_timer.function = speaker_timer_func;
+    speaker_workqueue = create_workqueue("speaker_workqueue");
+    INIT_WORK(&speaker_work, speaker_work_callback);    
+/* xiaojun.lv@PhoneSW.AudioDrv, 2014/10/17, add timer and workqueue for avoid pop sound end */
+
 	pr_info("tas2552 probed successfully\n");
 
+/* OPPO 2014-10-14 John.Xu@Audio.Driver Add begin for f0 test */
+    if(!opalum_proc_created)
+    {
+        create_opalum_proc();
+        opalum_proc_created = 1;
+    }
+
+/* OPPO 2014-10-14 John.Xu@Audio.Driver Add end */
 	return 0;
 
 init_fail:

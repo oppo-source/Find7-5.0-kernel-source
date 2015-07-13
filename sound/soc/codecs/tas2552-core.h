@@ -54,11 +54,12 @@
 
 /* Shutdown Bit Mask */
 #define TAS2552_SHUTDOWN				(0x01 << 1)
+#define TAS2552_MUTE                    (0x01 << 2)
 
 /* Number of registers */
-#define TAS2552_REG_LIST_SIZE  26
+#define TAS2552_REG_LIST_SIZE  0x40
 
-#define TAS2552_MAX_REGISTER_VAL 0x19
+#define TAS2552_MAX_REGISTER_VAL 0x40
 
 extern void tas2552_ext_amp_on(int on);
 

@@ -32,15 +32,32 @@
 		status = "ok";
 	};
 
+/*
+	¡qcom,mdss_dsi@fd922800 {
+		qcom,dsi-pref-prim-pan = <&dsi_tosh_720_vid>;
+	};
+*/
+
+
+
 	qcom,mdss_dsi@fd922800 {
-		/*qcom,dsi-pref-prim-pan = <&dsi_tosh_720_vid>;*/
 		qcom,dsi-pref-prim-pan = <&dsi_jdi_1080_cmd>;
 	};
+
+
+
+
+/*
+	qcom,mdss_dsi@fd922800 {
+		qcom,dsi-pref-prim-pan = <&dsi_jdi_1080_vid>;
+	};
+*/
 /* OPPO 2014-02-10 yxq added begin for Find7S */
 	qcom,mdss_dsi@fd922e00 {
 		qcom,dsi-pref-find7s-jdi-pan = <&dsi_jdi_1440_vid2>;
 	}; 
-/* OPPO 2014-02-10 yxq added end */
+/* OPPO 2014-02-10 yxq added end */	
+
 	qcom,mdss_mdp@fd900000 {
 		qcom,mdss-pref-prim-intf = "dsi";
 		batfet-supply = <&pm8941_chg_batif>;
@@ -187,19 +204,19 @@
 			sn3193,sdb-gpio = <&msmgpio 45 0x00>;
 			};
 /*OPPO yuyi 2013-09-27 add end for rgb _led*/
-/*yanghai add */
-		ti_lm3630_bl@36 {
-			compatible = "ti,lm3630";
-			reg = <0x36>;
-			ti,bank-a-ctrl = <0x05>;
-			ti,init-brt-ed1 = <200>;
-			ti,init-brt-led2 = <200>;
-			ti,max-brt-led1 = <255>;
-			ti,max-brt-led2 = <255>;
-			ti,pwm-active = <0>;
-			ti,pwm-ctrl = <0>;
-			ti,pwm-period = <255>;
-		};
+	/*yanghai add */
+			ti_lm3630_bl@36 {
+				compatible = "ti,lm3630";
+				reg = <0x36>;
+				ti,bank-a-ctrl = <0x05>;
+				ti,init-brt-ed1 = <200>;
+				ti,init-brt-led2 = <200>;
+				ti,max-brt-led1 = <255>;
+				ti,max-brt-led2 = <255>;
+				ti,pwm-active = <0>;
+				ti,pwm-ctrl = <0>;
+				ti,pwm-period = <255>;
+			};
 
 /* OPPO 2014-06-23 ranfei Add begin for digital hall MXM2011 */
 		dhall@0C {
@@ -212,6 +229,9 @@
 			vcc_i2c_1v8-supply = <&pm8941_lvs2>;						
 		};
 /* OPPO 2014-06-23 ranfei Add end */
+
+
+		
 	};
 /*OPPO yuyi 2013-03-22 add begin for nfc*/
 //ifdef VENDOR_EDIT
@@ -244,6 +264,12 @@
 	};
 //endif //VENDOR_EDIT
 /*OPPO yuyi 2013-03-22 add end*/
+
+
+		
+
+
+
 	gen-vkeys {
 		compatible = "qcom,gen-vkeys";
 		label = "atmel_mxt_ts";
@@ -375,7 +401,7 @@
 			gpios = <&pm8941_gpios 5 0x1>;
 			linux,input-type = <1>;
 			linux,code = <115>;
-			/*gpio-key,wakeup;*/
+			gpio-key,wakeup;
 			debounce-interval = <15>;
 		};		
 		vol_down {
@@ -397,7 +423,7 @@
 			linux,input-type = <5>;
 			linux,code = <0>;
 			gpio-key,wakeup;
-			debounce-interval = <150>;
+			debounce-interval = <15>;
 		};
 /* #endif */
 /* OPPO zhengzk 2013-04-18 add end */
@@ -537,14 +563,14 @@
 &sdhc_2 {
 	#address-cells = <0>;
 	interrupt-parent = <&sdhc_2>;
-	interrupts = <0 1 2>;
+	interrupts = <0 1 /*2*/>;
 	#interrupt-cells = <1>;
 	interrupt-map-mask = <0xffffffff>;
 	interrupt-map = <0 &intc 0 125 0
 			1 &intc 0 221 0
-			2 &msmgpio 69 0x3>; /* Zhilong.Zhang@OnlineRd.Driver, 2013/11/08, Modify for change the micro SD card detect pin to a NULL pin (gpio_69)*/
-	interrupt-names = "hc_irq", "pwr_irq", "status_irq";
-	cd-gpios = <&msmgpio 69 0x1>; /* Zhilong.Zhang@OnlineRd.Driver, 2013/11/08, Modify for change the micro SD card detect pin to a NULL pin (gpio_69)*/
+			/*2 &msmgpio 69 0x3*/>; /* Zhilong.Zhang@OnlineRd.Driver, 2013/11/08, Modify for change the micro SD card detect pin to a NULL pin (gpio_69)*/
+	interrupt-names = "hc_irq", "pwr_irq" /*, "status_irq"*/;
+	/*cd-gpios = <&msmgpio 69 0x1>;*/ /* Zhilong.Zhang@OnlineRd.Driver, 2013/11/08, Modify for change the micro SD card detect pin to a NULL pin (gpio_69)*/
 
 	vdd-supply = <&pm8941_l21>;
 	vdd-io-supply = <&pm8941_l13>;

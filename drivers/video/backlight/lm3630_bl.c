@@ -31,6 +31,8 @@
 #ifdef CONFIG_VENDOR_EDIT
 #include <linux/boot_mode.h>
 #endif //CONFIG_VENDOR_EDIT
+
+/* OPPO 2015-05-22 Goushengjun Add end */
 #define REG_CTRL	0x00
 #define REG_CONFIG	0x01
 #define REG_BRT_A	0x03
@@ -49,6 +51,16 @@
 #define REG_REVISION 0x1F
 /* OPPO 2013-10-24 yxq Add end */
 #define INT_DEBOUNCE_MSEC	10
+
+#ifdef VENDOR_EDIT
+/* liuyan@Onlinerd.driver, 2015/03/26  Add for fix low brightness flicker */
+#define FILTER_STR 0x50
+#endif /*CONFIG_VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+/* OPPO 2015-05-22 Goushengjun Add begin for close BL when utomatic reboot*/
+extern unsigned int get_lcd_closebl_flag(void);
+#endif
 
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/03/10  Add for flicker in low backlight */
@@ -92,7 +104,11 @@ static int lm3630_chip_init(struct lm3630_chip_data *pchip)
 	int ret;
 	unsigned int reg_val;
 	struct lm3630_platform_data *pdata = pchip->pdata;
-
+	
+#ifdef VENDOR_EDIT
+/* liuyan@Onlinerd.driver, 2015/03/26  Add for low brightness filcker */
+	ret = regmap_update_bits(pchip->regmap, FILTER_STR, 0x03, 0x03);
+#endif /*CONFIG_VENDOR_EDIT*/
 	/*pwm control */
 	reg_val = ((pdata->pwm_active & 0x01) << 2) | (pdata->pwm_ctrl & 0x03);
 	ret = regmap_update_bits(pchip->regmap, REG_CONFIG, 0x07, reg_val);
@@ -109,18 +125,21 @@ static int lm3630_chip_init(struct lm3630_chip_data *pchip)
 
 #ifdef CONGIF_OPPO_CMCC_OPTR
     reg_val = 0x12; /* For 13077 CMCC */
-    if ((get_pcb_version() >= 20)&&(get_pcb_version() < 30)) {/*liuyan add for N3*/
+    if ((get_pcb_version() >= 20)&&(get_pcb_version() < 30)) {/*liuyan add for N3*/	
         reg_val = 0x0F; /* For 13097 cmcctest */
     } else {
         reg_val = 0x12; /* For 13077 cmcc test */
     }
 #else
     if ((get_pcb_version() >= 20)&&(get_pcb_version() < 30)) {/*liuyan add for N3*/
+	
         reg_val = 0x12; /* For 13097 low power version */
     } else {
+   
         reg_val = 0x16; /* For 13077 pvt panel */
     }
 #endif
+
 	regmap_write(pchip->regmap, REG_MAXCU_A, reg_val);
 	regmap_write(pchip->regmap, REG_MAXCU_B, reg_val);
 	/* bank control */
@@ -134,27 +153,45 @@ static int lm3630_chip_init(struct lm3630_chip_data *pchip)
 	if (ret < 0)
 		goto out;
 	printk("%s: bl_initvalue=%d\n", __func__,pdata->init_brt_led1);
-	/* set initial brightness */
-	if (pdata->bank_a_ctrl != BANK_A_CTRL_DISABLE) {
-		printk("%s: bl_initvalue=%d,222\n", __func__,pdata->init_brt_led1);
-		if (ret < 0)
-			goto out;
-	}
+#ifdef VENDOR_EDIT
+	/* OPPO Goushengjun,2015-5-21 add for close BL when utomatic reboot  */
+	if(get_lcd_closebl_flag()) {
+		if (pdata->bank_a_ctrl != BANK_A_CTRL_DISABLE) {
+			ret = regmap_write(pchip->regmap,
+				   REG_BRT_A,0);
+			if (ret < 0)
+				goto out;
+		}
 
-	if (pdata->bank_b_ctrl != BANK_B_CTRL_DISABLE) {
-		ret = regmap_write(pchip->regmap,
+		if (pdata->bank_b_ctrl != BANK_B_CTRL_DISABLE) {
+			ret = regmap_write(pchip->regmap,
+				   REG_BRT_B,0);
+			if (ret < 0)
+				goto out;
+		}	
+
+	}else {
+		/* set initial brightness */
+		if (pdata->bank_a_ctrl != BANK_A_CTRL_DISABLE) {
+			printk("%s: bl_initvalue=%d,222\n", __func__,pdata->init_brt_led1);
+			if (ret < 0)
+				goto out;
+		}
+		if (pdata->bank_b_ctrl != BANK_B_CTRL_DISABLE) {
+			ret = regmap_write(pchip->regmap,
 				   REG_BRT_B, pdata->init_brt_led2);
-		if (ret < 0)
-			goto out;
+			if (ret < 0)
+				goto out;
+		}
+
+   	 	ret = regmap_write(pchip->regmap,
+				   REG_BRT_A, pdata->init_brt_led1);
+    	ret = regmap_write(pchip->regmap,
+				   REG_BRT_A, pdata->init_brt_led1);
+		return ret;
 	}
-
-    ret = regmap_write(pchip->regmap,
-				   REG_BRT_A, pdata->init_brt_led1);
-    ret = regmap_write(pchip->regmap,
-				   REG_BRT_A, pdata->init_brt_led1);
-
-	return ret;
-
+#endif
+/* OPPO Goushengjun add end*/
 out:
 	dev_err(pchip->dev, "i2c failed to access register\n");
 	return ret;
@@ -235,17 +272,20 @@ static int lm3630_bank_a_update_status(struct backlight_device *bl)
 
 	/* brightness 0 means disable */
 	if (!bl->props.brightness) {
+
 		ret = regmap_update_bits(pchip->regmap, REG_CTRL, 0x04, 0x00);
 		if (ret < 0)
 			goto out;
 		return bl->props.brightness;
 	}
 
+
 	/* pwm control */
 	if (pwm_ctrl == PWM_CTRL_BANK_A || pwm_ctrl == PWM_CTRL_BANK_ALL) {
 		if (!set_intensity(bl, pchip))
 			dev_err(pchip->dev, "No pwm control func. in plat-data\n");
 	} else {
+
 
 		/* i2c control */
 		ret = regmap_update_bits(pchip->regmap, REG_CTRL, 0x80, 0x00);
@@ -269,7 +309,6 @@ static int lm3630_bank_a_get_brightness(struct backlight_device *bl)
 	int brightness, ret;
 	struct lm3630_chip_data *pchip = bl_get_data(bl);
 	enum lm3630_pwm_ctrl pwm_ctrl = pchip->pdata->pwm_ctrl;
-
 	if (pwm_ctrl == PWM_CTRL_BANK_A || pwm_ctrl == PWM_CTRL_BANK_ALL) {
 		ret = regmap_read(pchip->regmap, REG_PWM_OUTHIGH, &reg_val);
 		if (ret < 0)
@@ -308,7 +347,6 @@ static int lm3630_bank_b_update_status(struct backlight_device *bl)
 	int ret;
 	struct lm3630_chip_data *pchip = bl_get_data(bl);
 	enum lm3630_pwm_ctrl pwm_ctrl = pchip->pdata->pwm_ctrl;
-
 	if (pwm_ctrl == PWM_CTRL_BANK_B || pwm_ctrl == PWM_CTRL_BANK_ALL) {
 		if (!set_intensity(bl, pchip))
 			dev_err(pchip->dev,
@@ -333,7 +371,6 @@ static int lm3630_bank_b_get_brightness(struct backlight_device *bl)
 	int brightness, ret;
 	struct lm3630_chip_data *pchip = bl_get_data(bl);
 	enum lm3630_pwm_ctrl pwm_ctrl = pchip->pdata->pwm_ctrl;
-
 	if (pwm_ctrl == PWM_CTRL_BANK_B || pwm_ctrl == PWM_CTRL_BANK_ALL) {
 		ret = regmap_read(pchip->regmap, REG_PWM_OUTHIGH, &reg_val);
 		if (ret < 0)
@@ -375,7 +412,6 @@ static int lm3630_backlight_register(struct lm3630_chip_data *pchip,
 	const char *name = bled_name[ledno];
 	struct backlight_properties props;
 	struct lm3630_platform_data *pdata = pchip->pdata;
-
 	props.type = BACKLIGHT_RAW;
 	switch (ledno) {
 	case BLED_1:
@@ -418,22 +454,22 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 	struct lm3630_chip_data *pchip = lm3630_pchip;
 	pr_debug("%s: bl=%d\n", __func__,bl_level);
 #ifdef VENDOR_EDIT
+
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/04/28  Add for add log for 14001 black screen */
 		if(pre_brightness == 0)
 			{pr_err("%s set brightness :  %d \n",__func__,bl_level);}
 		pre_brightness=bl_level;
 #endif /*VENDOR_EDIT*/
-	
+
 	if(!pchip){
 		dev_err(pchip->dev, "lm3630_bank_a_update_status pchip is null\n");
 		return -ENOMEM;
 		}
-
     if (!pchip->regmap || !lm3630_pchip->regmap) {
         pr_err("%s YXQ pchip->regmap is NULL.\n", __func__);
         return bl_level;
     }
-	
+
 	/* brightness 0 means disable */
 	if (!bl_level) {
         ret = regmap_write(lm3630_pchip->regmap, REG_BRT_A, 0);
@@ -442,7 +478,6 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 			goto out;
 		return bl_level;
 	}
-
 	/* pwm control */
 	//bl_level=255;
 		/* i2c control */
@@ -451,23 +486,37 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 			goto out;
 		mdelay(1);
 #ifndef VENDOR_EDIT
+
+
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/04/24  Modify for backlight flick when disable pwm */
 		ret = regmap_write(pchip->regmap,
 				   REG_BRT_A, bl_level);
 #else /*VENDOR_EDIT*/
 		if(bl_level>20)
+			{
+	
 			ret = regmap_write(pchip->regmap,
 				   REG_BRT_A, bl_level);
+			}
 		else if((get_pcb_version() < 20)||(get_pcb_version() >=30))/*liuyan add 30 for N3*/
+			{
+
+		
 			ret = regmap_write(pchip->regmap,
 				   REG_BRT_A, 2+(bl_level-1)*7/18);
+			}
 		else
+			{
+	
 			ret = regmap_write(pchip->regmap,
 				   REG_BRT_A, 2+(bl_level-1)*9/18);
+			}
 #endif /*VENDOR_EDIT*/
 		if (ret < 0)
 			goto out;
 #ifdef VENDOR_EDIT
+
+
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/03/10  Add for flicker in low backlight */
 		backlight_level =  bl_level;
 		if(bl_level <= 0x14 && pwm_flag==true){
@@ -476,6 +525,7 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 			set_backlight_pwm(1);
 		}
 #endif /*VENDOR_EDIT*/
+
 	return bl_level;
 out:
 	dev_err(pchip->dev, "i2c failed to access REG_CTRL\n");
@@ -498,7 +548,7 @@ static int lm3630_dt(struct device *dev, struct lm3630_platform_data *pdata)
 	int rc;
 	struct device_node *np = dev->of_node;	
 //		dev_err(dev, "yanghai read \n");
-		
+
 		rc = of_property_read_u32(np, "ti,bank-a-ctrl", &temp_val);
 		if (rc) {
 			dev_err(dev, "Unable to read bank-a-ctrl\n");
@@ -581,7 +631,6 @@ static ssize_t ftmbacklight_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
     int level;
-
     if (!count)
 		return -EINVAL;
 #if 0
@@ -718,6 +767,7 @@ static int lm3630_probe(struct i2c_client *client,
 	dev_err(&client->dev, "LM3630 backlight register OK.\n");
 
 #ifdef CONFIG_VENDOR_EDIT
+
 /* OPPO zhanglong add 2013-08-30 for ftm test LCD backlight */
     ret = device_create_file(&client->dev, &dev_attr_ftmbacklight);
 	if (ret < 0) {
@@ -746,7 +796,6 @@ static int lm3630_remove(struct i2c_client *client)
 {
 	int ret;
 	struct lm3630_chip_data *pchip = i2c_get_clientdata(client);
-
 #ifdef CONFIG_VENDOR_EDIT
 /* OPPO zhanglong add 2013-08-30 for ftm test LCD backlight */
     device_remove_file(&client->dev, &dev_attr_ftmbacklight);
@@ -784,8 +833,7 @@ MODULE_DEVICE_TABLE(i2c, lm3630_id);
 static int lm3630_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	int rc ;
-	
-	pr_debug("%s:backlight suspend.\n", __func__);
+	pr_err("%s:backlight suspend.\n", __func__);
     rc = regmap_write(lm3630_pchip->regmap, REG_BRT_A, 0);
 	rc  = regmap_update_bits(lm3630_pchip->regmap, REG_CTRL, 0x80, 0x80);
 	if (rc  < 0)
@@ -803,8 +851,7 @@ static int lm3630_suspend(struct i2c_client *client, pm_message_t mesg)
 static int lm3630_resume(struct i2c_client *client)
 {
 	int rc ;
-
-	pr_debug("%s: backlight resume.\n", __func__);
+	pr_err("%s: backlight resume.\n", __func__);
     rc = regmap_write(lm3630_pchip->regmap, REG_BRT_A, 0);
 	regmap_update_bits(lm3630_pchip->regmap, REG_CONFIG, 0x04, 0x00);
 	rc  = regmap_update_bits(lm3630_pchip->regmap, REG_CTRL, 0x80, 0x00);
@@ -832,6 +879,7 @@ void lm3630_reduce_max_current(void)
 
 void lm3630_recover_max_current(void)
 {
+
 	if(lm3630_pchip == NULL) return;
 	regmap_write(lm3630_pchip->regmap, REG_MAXCU_A, 0x12);
 	regmap_write(lm3630_pchip->regmap, REG_MAXCU_B, 0x12);
@@ -850,11 +898,13 @@ int set_backlight_pwm(int state)
 			if( state == 1 && backlight_level <= 0x14 ) return rc;
         	if(state == 1)
     		{
+    	
        			 rc = regmap_update_bits(lm3630_pchip->regmap, REG_CONFIG, 0x01, 0x01);
 				 pwm_flag = true;
    		    }
    			else
    			{
+   			
     		     rc = regmap_update_bits(lm3630_pchip->regmap, REG_CONFIG, 0x01, 0x00);
 				 pwm_flag = false;
   			}

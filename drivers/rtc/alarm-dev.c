@@ -149,7 +149,8 @@ from_old_alarm_set:
 			timespec_to_ktime(new_alarm_time),
 			timespec_to_ktime(new_alarm_time));
 		spin_unlock_irqrestore(&alarm_slock, flags);
-/* OPPO 2013-11-19 yuyi modify begin for power up alarm */#ifndef VENDOR_EDIT
+/* OPPO 2013-11-19 yuyi modify begin for power up alarm */
+#ifndef VENDOR_EDIT
 		if ((alarm_type == ANDROID_ALARM_RTC_POWEROFF_WAKEUP) &&
 				(ANDROID_ALARM_BASE_CMD(cmd) ==
 				 ANDROID_ALARM_SET(0)))
@@ -248,6 +249,11 @@ static int alarm_release(struct inode *inode, struct file *file)
 	if (file->private_data != 0) {
 		for (i = 0; i < ANDROID_ALARM_TYPE_COUNT; i++) {
 			uint32_t alarm_type_mask = 1U << i;
+			#ifdef VENDOR_EDIT //Fangfang.Hui@Swdp.Android.Usb&Storage, 2014/09/05, Add for do not remove powerup alarm
+			if (i == ANDROID_ALARM_RTC_POWERUP)
+				continue;
+			#endif /* VENDOR_EDIT */
+			
 			if (alarm_enabled & alarm_type_mask) {
 				pr_alarm(INFO, "alarm_release: clear alarm, "
 					"pending %d\n",

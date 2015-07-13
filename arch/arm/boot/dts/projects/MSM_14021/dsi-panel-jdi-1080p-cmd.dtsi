@@ -54,18 +54,21 @@
 		qcom,mdss-dsi-on-command = [39 01 00 00 01 00 05 2a 00 00 04 37
                                     39 01 00 00 01 00 05 2b 00 00 07 7f
                                     23 01 00 00 01 00 02 b0 04
-									29 01 00 00 01 00 1f c7 00 0B 10 19 27 33 3D 4C 32 39 45 57 6A 74 7F 00 0B 10 19 27 33 3D 4C 32 39 45 57 6A 74 7F
+					 29 01 00 00 01 00 1f c7 00 0B 10 19 27 33 3D 4C 32 39 45 57 6A 74 7F 00 0B 10 19 27 33 3D 4C 32 39 45 57 6A 74 7F
                                     29 01 00 00 01 00 14 c8 01 0A FD 03 01 E8 00 00 03 FC F5 A1 00 00 01 FD 06 FC 00
                                     29 01 00 00 01 00 21 ca 01 80 89 90 C0 80 90 90 10 3F 14 89 0A 4A 37 A0 55 F8 0C 0C 20 10 3F 3F 00 E6 06 0C 0C 0C 0C 0C
-									29 01 00 00 01 00 18 CE 75 40 43 49 55 62 71 82 94 A8 B9 CB DB E9 F5 FC FF 04 00 04 04 44 20
-									29 01 00 00 01 00 07 B8 03 90 1E 10 1E 32
-									29 01 00 00 01 00 07 B9 03 82 3C 10 3C 87
-									29 01 00 00 01 00 07 BA 03 78 64 10 64 B4
+                                    /*liuyan 2014-11-20 40->3d 43->42 low brightness cabc flash*/
+					 29 01 00 00 01 00 18 CE 7d 3d 42 49 55 62 71 82 94 A8 B9 CB DB E9 F5 FC FF 04 00 04 04 44 00
+					 29 01 00 00 01 00 17 C4 70 00 00 33 33 33 33 33 33 00 03 00 00 00 33 33 33 33 33 33 00 03
+					 29 01 00 00 01 00 07 B8 03 90 1E 10 1E 32
+					 29 01 00 00 01 00 07 B9 03 82 3C 10 3C 87
+					 29 01 00 00 01 00 07 BA 03 78 64 10 64 B4
                                     23 01 00 00 00 00 02 d6 01
                                     23 01 00 00 01 00 02 b0 03
-									39 01 00 00 01 00 02 51 ff
-									15 01 00 00 01 00 02 55 03
-                                    15 01 00 00 01 00 02 53 2c
+					 39 01 00 00 01 00 02 51 ff
+					 15 01 00 00 01 00 02 55 03
+					/*liuyan 2014-11-20 2c->24 low brightness cabc flash*/
+                                    15 01 00 00 01 00 02 53 24
                                     05 01 00 00 78 00 02 11 00
                                     15 01 00 00 11 00 02 36 00
                                     15 01 00 00 01 00 02 3a 77
@@ -99,15 +102,12 @@
 		qcom,mdss-dsi-mdp-trigger = "trigger_sw";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-reset-sequence = <1 20>, <0 200>, <1 20>;
-		/*yxr add begin for CABC*/
-		qcom,mdss-dsi-cabc-off-command = [15 01 00 00 10 00 02 55 00
-										  05 01 00 00 10 00 02 29 00];
-		qcom,mdss-dsi-cabc-ui-command = [15 01 00 00 10 00 02 55 01
-										 05 01 00 00 10 00 02 29 00];
-		qcom,mdss-dsi-cabc-still-image-command = [15 01 00 00 10 00 02 55 02
-												  05 01 00 00 10 00 02 29 00];
-		qcom,mdss-dsi-cabc-video-command = [15 01 00 00 10 00 02 55 03
-										    05 01 00 00 10 00 02 29 00];
+		/*yxr add begin for CABC 2014-11-06 liuyan reduce delay */
+		qcom,mdss-dsi-cabc-off-command = [15 01 00 00 01 00 02 55 00];
+		qcom,mdss-dsi-cabc-ui-command = [15 01 00 00 01 00 02 55 01];
+		qcom,mdss-dsi-cabc-still-image-command = [15 01 00 00 01 00 02 55 02];
+		qcom,mdss-dsi-cabc-video-command = [15 01 00 00 01 00 02 55 03];
+		/*2014-11-06 liuyan reduce delay end*/
 		qcom,mdss-dsi-gamma1 = [23 01 00 00 01 00 02 b0 04
 								29 01 00 00 01 00 14 c8 01 0A FD 03 01 E8 00 00 03 FC F5 A1 00 00 01 FD 06 FC 00
 								23 01 00 00 00 00 02 d6 01

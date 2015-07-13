@@ -57,7 +57,11 @@
 
 		qcom,pon_1 {
 			qcom,pon-type = <0>;
+			qcom,support-reset = <1>;
 			qcom,pull-up = <1>;
+			qcom,s1-timer = <10256>;
+			qcom,s2-timer = <2000>;
+			qcom,s2-type = <1>;
 			linux,code = <116>;
 		};
 
@@ -200,17 +204,27 @@
 		status = "disabled";
 
 		/*vendor_edit wangjc change*/
-		qcom,vddmax-mv = <4352>;
-		qcom,vddsafe-mv = <4350>;
+//#ifdef CONFIG_VENDOR_EDIT
+/* yangfangbiao@oneplus.cn, 2015/01/06  Add for  sync with KK charge standard  */
+		qcom,vddmax-mv = <4320>;
+		qcom,vddsafe-mv = <4320>;
+//#endif /*CONFIG_VENDOR_EDIT*/
 		qcom,vinmin-mv = <4400>;
 		qcom,ibatmax-ma = <2000>;
 		qcom,ibatterm-ma = <150>;
 		qcom,ibatsafe-ma = <2000>;
 		qcom,thermal-mitigation = <2000 900 900 200>;
+		qcom,cool-bat-decidegc = <100>;
 		qcom,cool-bat-mv = <4200>;
 		qcom,ibatmax-warm-ma = <900>;
+		qcom,warm-bat-decidegc = <450>;
 		qcom,warm-bat-mv = <4100>;
 		qcom,ibatmax-cool-ma = <900>;
+//#ifdef CONFIG_VENDOR_EDIT
+/* yangfangbiao@oneplus.cn, 2015/01/06  Add for  sync with KK charge standard  */
+		qcom,little-cool-bat-mv = <4320>;
+		qcom,ibatmax-little-cool-ma = <1400>;
+//#endif /*CONFIG_VENDOR_EDIT*/
 		qcom,vbatdet-delta-mv = <100>;
 		qcom,resume-soc = <99>;
 		qcom,tchg-mins = <150>;
@@ -219,7 +233,7 @@
 		qcom,chg-adc_tm = <&pm8941_adc_tm>;
 		qcom,ibat-calibration-enabled;
 
-		qcom,chgr@1000 {
+		pm8941_chg_chgr: qcom,chgr@1000 {
 			status = "disabled";
 			reg = <0x1000 0x100>;
 			interrupts =	<0x0 0x10 0x0>,
@@ -301,7 +315,7 @@
 		};
 
 		pm8941_chg_boost: qcom,boost@1500 {
-			status = "disabled";
+			status = "okay";
 			reg = <0x1500 0x100>;
 			interrupts =	<0x0 0x15 0x0>,
 					<0x0 0x15 0x1>;
@@ -1305,6 +1319,7 @@
 		label = "flash";
 		flash-boost-supply = <&pm8941_chg_boost>;
 		torch-boost-supply = <&pm8941_boost>;
+		flash-wa-supply = <&pm8941_chg_chgr>;
 	};
 
 	qcom,leds@d400 {

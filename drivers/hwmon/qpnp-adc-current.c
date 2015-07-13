@@ -70,7 +70,6 @@
 #define QPNP_ADC_DEC_RATIO_SEL_MASK			0xc
 #define QPNP_ADC_DIG_DEC_RATIO_SEL_SHIFT		2
 
-#define QPNP_HW_SETTLE_DELAY				0x51
 #define QPNP_CONV_REQ					0x52
 #define QPNP_CONV_REQ_SET				BIT(7)
 #define QPNP_CONV_SEQ_CTL				0x54
@@ -130,7 +129,8 @@
 #define QPNP_RSENSE_MSB_SIGN_CHECK			0x80
 #define QPNP_ADC_COMPLETION_TIMEOUT			HZ
 #define SMBB_BAT_IF_TRIM_CNST_RDS_MASK			0x7
-#define SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST		2
+#define SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_0		0
+#define SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_2		2
 #define QPNP_IADC1_USR_TRIM2_ADC_FULLSCALE1_CONST	127
 #define QPNP_IADC_RSENSE_DEFAULT_VALUE			7800000
 #define QPNP_IADC_RSENSE_DEFAULT_TYPEB_GF		9000000
@@ -162,6 +162,7 @@ struct qpnp_iadc_chip {
 	bool					iadc_poll_eoc;
 	u16					batt_id_trim_cnst_rds;
 	int					rds_trim_default_type;
+	int					max_channels_available;
 	bool					rds_trim_default_check;
 	int32_t					rsense_workaround_value;
 	struct sensor_device_attribute		sens_attr[0];
@@ -172,6 +173,7 @@ LIST_HEAD(qpnp_iadc_device_list);
 enum qpnp_iadc_rsense_rds_workaround {
 	QPNP_IADC_RDS_DEFAULT_TYPEA,
 	QPNP_IADC_RDS_DEFAULT_TYPEB,
+	QPNP_IADC_RDS_DEFAULT_TYPEC,
 };
 
 static int32_t qpnp_iadc_read_reg(struct qpnp_iadc_chip *iadc,
@@ -644,6 +646,7 @@ static int qpnp_iadc_rds_trim_update_check(struct qpnp_iadc_chip *iadc)
 {
 	int rc = 0;
 	u8 trim2_val = 0, smbb_batt_trm_data = 0;
+	u8 smbb_batt_trm_cnst_rds = 0;
 
 	if (!iadc->rds_trim_default_check) {
 		pr_debug("No internal rds trim check needed\n");
@@ -663,11 +666,15 @@ static int qpnp_iadc_rds_trim_update_check(struct qpnp_iadc_chip *iadc)
 		return rc;
 	}
 
+	smbb_batt_trm_cnst_rds = smbb_batt_trm_data &
+				SMBB_BAT_IF_TRIM_CNST_RDS_MASK;
+
 	pr_debug("n_trim:0x%x smb_trm:0x%x\n", trim2_val, smbb_batt_trm_data);
 
 	if (iadc->rds_trim_default_type == QPNP_IADC_RDS_DEFAULT_TYPEA) {
-		if (((smbb_batt_trm_data & SMBB_BAT_IF_TRIM_CNST_RDS_MASK) ==
-				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST) &&
+
+		if ((smbb_batt_trm_cnst_rds ==
+				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_2) &&
 		(trim2_val == QPNP_IADC1_USR_TRIM2_ADC_FULLSCALE1_CONST)) {
 			iadc->rsense_workaround_value =
 					QPNP_IADC_RSENSE_DEFAULT_VALUE;
@@ -675,15 +682,14 @@ static int qpnp_iadc_rds_trim_update_check(struct qpnp_iadc_chip *iadc)
 		}
 	} else if (iadc->rds_trim_default_type ==
 						QPNP_IADC_RDS_DEFAULT_TYPEB) {
-		if (((smbb_batt_trm_data & SMBB_BAT_IF_TRIM_CNST_RDS_MASK) >=
-				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST) &&
+		if ((smbb_batt_trm_cnst_rds >=
+				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_2) &&
 		(trim2_val == QPNP_IADC1_USR_TRIM2_ADC_FULLSCALE1_CONST)) {
 			iadc->rsense_workaround_value =
 					QPNP_IADC_RSENSE_DEFAULT_VALUE;
 				iadc->default_internal_rsense = true;
-		} else if (((smbb_batt_trm_data &
-			SMBB_BAT_IF_TRIM_CNST_RDS_MASK)
-			< SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST) &&
+		} else if ((smbb_batt_trm_cnst_rds <
+				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_2) &&
 			(trim2_val ==
 				QPNP_IADC1_USR_TRIM2_ADC_FULLSCALE1_CONST)) {
 			if (iadc->iadc_comp.id == COMP_ID_GF) {
@@ -695,6 +701,17 @@ static int qpnp_iadc_rds_trim_update_check(struct qpnp_iadc_chip *iadc)
 					QPNP_IADC_RSENSE_DEFAULT_TYPEB_SMIC;
 				iadc->default_internal_rsense = true;
 			}
+		}
+	} else if (iadc->rds_trim_default_type == QPNP_IADC_RDS_DEFAULT_TYPEC) {
+
+		if ((smbb_batt_trm_cnst_rds >
+				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_0) &&
+		(smbb_batt_trm_cnst_rds <=
+				SMBB_BAT_IF_TRIM_CNST_RDS_MASK_CONST_2) &&
+		(trim2_val == QPNP_IADC1_USR_TRIM2_ADC_FULLSCALE1_CONST)) {
+			iadc->rsense_workaround_value =
+					QPNP_IADC_RSENSE_DEFAULT_VALUE;
+			iadc->default_internal_rsense = true;
 		}
 	}
 
@@ -782,13 +799,6 @@ static int32_t qpnp_iadc_configure(struct qpnp_iadc_chip *iadc,
 						qpnp_iadc_dig_param_reg);
 	if (rc) {
 		pr_err("qpnp adc read adc failed with %d\n", rc);
-		return rc;
-	}
-
-	rc = qpnp_iadc_write_reg(iadc, QPNP_HW_SETTLE_DELAY,
-				iadc->adc->amux_prop->hw_settle_time);
-	if (rc < 0) {
-		pr_err("qpnp adc configure error for hw settling time setup\n");
 		return rc;
 	}
 
@@ -909,6 +919,9 @@ int32_t qpnp_iadc_calibrate_for_trim(struct qpnp_iadc_chip *iadc,
 		pr_debug("acquiring iadc eoc wakelock\n");
 		pm_stay_awake(iadc->dev);
 	}
+
+	iadc->adc->amux_prop->decimation = DECIMATION_TYPE1;
+	iadc->adc->amux_prop->fast_avg_setup = ADC_FAST_AVG_SAMPLE_1;
 
 	rc = qpnp_iadc_configure(iadc, GAIN_CALIBRATION_17P857MV,
 						&raw_data, mode_sel);
@@ -1075,7 +1088,7 @@ EXPORT_SYMBOL(qpnp_get_iadc);
 
 int32_t qpnp_iadc_get_rsense(struct qpnp_iadc_chip *iadc, int32_t *rsense)
 {
-	uint8_t	rslt_rsense;
+	uint8_t	rslt_rsense = 0;
 	int32_t	rc = 0, sign_bit = 0;
 
 	if (qpnp_iadc_is_valid(iadc) < 0)
@@ -1083,35 +1096,36 @@ int32_t qpnp_iadc_get_rsense(struct qpnp_iadc_chip *iadc, int32_t *rsense)
 
 	if (iadc->external_rsense) {
 		*rsense = iadc->rsense;
-		return rc;
-	}
-
-	if (iadc->default_internal_rsense) {
+	} else if (iadc->default_internal_rsense) {
 		*rsense = iadc->rsense_workaround_value;
-		return rc;
-	}
+	} else {
 
-	rc = qpnp_iadc_read_reg(iadc, QPNP_IADC_NOMINAL_RSENSE, &rslt_rsense);
-	if (rc < 0) {
-		pr_err("qpnp adc rsense read failed with %d\n", rc);
-		return rc;
-	}
+		rc = qpnp_iadc_read_reg(iadc, QPNP_IADC_NOMINAL_RSENSE,
+							&rslt_rsense);
+		if (rc < 0) {
+			pr_err("qpnp adc rsense read failed with %d\n", rc);
+			return rc;
+		}
 
-	pr_debug("rsense:0%x\n", rslt_rsense);
+		pr_debug("rsense:0%x\n", rslt_rsense);
 
-	if (rslt_rsense & QPNP_RSENSE_MSB_SIGN_CHECK)
-		sign_bit = 1;
+		if (rslt_rsense & QPNP_RSENSE_MSB_SIGN_CHECK)
+			sign_bit = 1;
 
-	rslt_rsense &= ~QPNP_RSENSE_MSB_SIGN_CHECK;
+		rslt_rsense &= ~QPNP_RSENSE_MSB_SIGN_CHECK;
 
-	if (sign_bit)
-		*rsense = QPNP_IADC_INTERNAL_RSENSE_N_OHMS_FACTOR -
+		if (sign_bit)
+			*rsense = QPNP_IADC_INTERNAL_RSENSE_N_OHMS_FACTOR -
 			(rslt_rsense * QPNP_IADC_RSENSE_LSB_N_OHMS_PER_BIT);
-	else
-		*rsense = QPNP_IADC_INTERNAL_RSENSE_N_OHMS_FACTOR +
+		else
+			*rsense = QPNP_IADC_INTERNAL_RSENSE_N_OHMS_FACTOR +
 			(rslt_rsense * QPNP_IADC_RSENSE_LSB_N_OHMS_PER_BIT);
-
+	}
 	pr_debug("rsense value is %d\n", *rsense);
+
+	if (*rsense == 0)
+		pr_err("incorrect rsens value:%d rslt_rsense:%d\n",
+				*rsense, rslt_rsense);
 
 	return rc;
 }
@@ -1152,6 +1166,7 @@ int32_t qpnp_iadc_read(struct qpnp_iadc_chip *iadc,
 	int32_t rsense_u_ohms = 0;
 	int64_t result_current;
 	uint16_t raw_data;
+	int dt_index = 0;
 
 	if (qpnp_iadc_is_valid(iadc) < 0)
 		return -EPROBE_DEFER;
@@ -1168,6 +1183,22 @@ int32_t qpnp_iadc_read(struct qpnp_iadc_chip *iadc,
 	}
 
 	mutex_lock(&iadc->adc->adc_lock);
+
+	while (((enum qpnp_iadc_channels)
+		iadc->adc->adc_channels[dt_index].channel_num
+		!= channel) && (dt_index < iadc->max_channels_available))
+		dt_index++;
+
+	if (dt_index >= iadc->max_channels_available) {
+		pr_err("not a valid IADC channel\n");
+		rc = -EINVAL;
+		goto fail;
+	}
+
+	iadc->adc->amux_prop->decimation =
+			iadc->adc->adc_channels[dt_index].adc_decimation;
+	iadc->adc->amux_prop->fast_avg_setup =
+			iadc->adc->adc_channels[dt_index].fast_avg_setup;
 
 	if (iadc->iadc_poll_eoc) {
 		pr_debug("acquiring iadc eoc wakelock\n");
@@ -1271,12 +1302,18 @@ int32_t qpnp_iadc_vadc_sync_read(struct qpnp_iadc_chip *iadc,
 	enum qpnp_vadc_channels v_channel, struct qpnp_vadc_result *v_result)
 {
 	int rc = 0, mode_sel = 0, num = 0, rsense_n_ohms = 0, sign = 0;
+	int dt_index = 0;
 	uint16_t raw_data;
 	int32_t rsense_u_ohms = 0;
 	int64_t result_current;
 
 	if (qpnp_iadc_is_valid(iadc) < 0)
 		return -EPROBE_DEFER;
+
+	if ((iadc->adc->calib.gain_raw - iadc->adc->calib.offset_raw) == 0) {
+		pr_err("raw offset errors! run iadc calibration again\n");
+		return -EINVAL;
+	}
 
 	mutex_lock(&iadc->adc->adc_lock);
 
@@ -1292,6 +1329,22 @@ int32_t qpnp_iadc_vadc_sync_read(struct qpnp_iadc_chip *iadc,
 		pr_err("Configuring VADC failed\n");
 		goto fail;
 	}
+
+	while (((enum qpnp_iadc_channels)
+		iadc->adc->adc_channels[dt_index].channel_num
+		!= i_channel) && (dt_index < iadc->max_channels_available))
+		dt_index++;
+
+	if (dt_index >= iadc->max_channels_available) {
+		pr_err("not a valid IADC channel\n");
+		rc = -EINVAL;
+		goto fail;
+	}
+
+	iadc->adc->amux_prop->decimation =
+			iadc->adc->adc_channels[dt_index].adc_decimation;
+	iadc->adc->amux_prop->fast_avg_setup =
+			iadc->adc->adc_channels[dt_index].fast_avg_setup;
 
 	rc = qpnp_iadc_configure(iadc, i_channel, &raw_data, mode_sel);
 	if (rc < 0) {
@@ -1314,6 +1367,11 @@ int32_t qpnp_iadc_vadc_sync_read(struct qpnp_iadc_chip *iadc,
 	result_current = i_result->result_uv;
 	result_current *= QPNP_IADC_NANO_VOLTS_FACTOR;
 	/* Intentional fall through. Process the result w/o comp */
+	if (!rsense_u_ohms) {
+		pr_err("rsense error=%d\n", rsense_u_ohms);
+		goto fail_release_vadc;
+	}
+
 	do_div(result_current, rsense_u_ohms);
 
 	if (sign) {
@@ -1501,6 +1559,7 @@ static int __devinit qpnp_iadc_probe(struct spmi_device *spmi)
 		goto fail;
 	}
 
+	iadc->max_channels_available = count_adc_channel_list;
 	INIT_WORK(&iadc->trigger_completion_work, qpnp_iadc_trigger_completion);
 	INIT_DELAYED_WORK(&iadc->iadc_work, qpnp_iadc_work);
 	rc = qpnp_iadc_comp_info(iadc);

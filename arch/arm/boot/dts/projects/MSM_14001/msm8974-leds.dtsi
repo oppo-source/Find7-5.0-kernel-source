@@ -11,85 +11,66 @@
  * GNU General Public License for more details.
  */
 
-&pm8941_lsid1 {	
-/*OPPO yuyi 2013-09-27 modify begin for RGB-leds*/
-/*#ifdef VENDOR_EDIT_CONFIG*/
+&pm8941_lsid1 {
+
+	qcom,leds@d800 {
+		status = "disabled";
+		qcom,wled_0 {
+			label = "wled";
+			linux,name = "wled:backlight";
+			linux,default-trigger = "bkl-trigger";
+			qcom,cs-out-en;
+			qcom,op-fdbck = <1>;
+			qcom,default-state = "on";
+			qcom,max-current = <25>;
+			qcom,ctrl-delay-us = <0>;
+			qcom,boost-curr-lim = <5>;
+			qcom,cp-sel = <0>;
+			qcom,switch-freq = <11>;
+			qcom,ovp-val = <2>;
+			qcom,num-strings = <3>;
+			qcom,id = <0>;
+		};
+	};
+
 	qcom,leds@d000 {
-		status = "okay";
+		status = "disabled";
 		qcom,rgb_0 {
 			label = "rgb";
-			linux,name = "rgb_red";
+			linux,name = "led:rgb_red";
 			qcom,mode = "pwm";
 			qcom,pwm-channel = <6>;
-			qcom,duty-ms = <200>;
-			qcom,start-idx = <1>;
-			qcom,idx-len = <10>;
-			qcom,duty-pcts = [00 00 00 00 00 00 00 00 00 00 00 
-							01 03 05 08 0B 10 14 19 1E 24 2A
-							30 38 40 49 52 5B 64 64 
-							64 64 64 5B 52 49 40 38 30  
-							2A 24 1E 19 14 10 0B 08 05 03 01
-							00 00 00 00 00 00 00 00 00 00 00];
-			qcom,max-current = <6>;
-			qcom,pause-lo = <0>;
-			qcom,pause-hi = <0>;
-			qcom,ramp-step-ms = <50>;
+			qcom,pwm-us = <1000>;
+			qcom,max-current = <12>;
 			qcom,default-state = "off";
 			qcom,id = <3>;
-			qcom,pwm-us = <1000>;
-			qcom,use-blink;
+			linux,default-trigger =
+				"battery-charging";
 		};
 
 		qcom,rgb_1 {
 			label = "rgb";
-			linux,name = "rgb_green";
+			linux,name = "led:rgb_green";
 			qcom,mode = "pwm";
 			qcom,pwm-channel = <5>;
-			qcom,duty-ms = <200>;
-			qcom,start-idx = <1>;
-			qcom,idx-len = <10>;
-			qcom,duty-pcts = [00 00 00 00 00 00 00 00 00 00 00 
-							01 03 05 08 0B 10 14 19 1E 24 2A
-							30 38 40 49 52 5B 64 64 
-							64 64 64 5B 52 49 40 38 30  
-							2A 24 1E 19 14 10 0B 08 05 03 01
-							00 00 00 00 00 00 00 00 00 00 00];
-			qcom,max-current = <6>;
-			qcom,pause-lo = <0>;
-			qcom,pause-hi = <0>;
-			qcom,ramp-step-ms = <50>;
+			qcom,pwm-us = <1000>;
+			qcom,max-current = <12>;
 			qcom,default-state = "off";
 			qcom,id = <4>;
-			qcom,pwm-us = <1000>;
-			qcom,use-blink;
+			linux,default-trigger = "battery-full";
 		};
 
 		qcom,rgb_2 {
 			label = "rgb";
-			linux,name = "rgb_blue";
+			linux,name = "led:rgb_blue";
 			qcom,mode = "pwm";
 			qcom,pwm-channel = <4>;
-			qcom,duty-ms = <200>;
-			qcom,start-idx = <1>;
-			qcom,idx-len = <10>;
-			qcom,duty-pcts = [00 00 00 00 00 00 00 00 00 00 00 
-							01 03 05 08 0B 10 14 19 1E 24 2A
-							30 38 40 49 52 5B 64 64 
-							64 64 64 5B 52 49 40 38 30  
-							2A 24 1E 19 14 10 0B 08 05 03 01
-							00 00 00 00 00 00 00 00 00 00 00];
-			qcom,max-current = <6>;
-			qcom,pause-lo = <0>;
-			qcom,pause-hi = <0>;
-			qcom,ramp-step-ms = <50>;
-			qcom,default-state = "off";
-			qcom,id = <5>;
 			qcom,pwm-us = <1000>;
-			qcom,use-blink;
+			qcom,max-current = <12>;
+			qcom,id = <5>;
+			status = "disabled";
 		};
 	};
-/*#endif*/	
-/*OPPO yuyi 2013-09-27 modify end for RGB-leds*/
 
 	qcom,leds@d100 {
 		status = "disabled";
@@ -182,21 +163,32 @@
 			qcom,row-id = <0>;
 			qcom,row-src-en;
 			qcom,always-on;
-		};
-/*OPPO yuyi 2013-09-27 modify end for button-backlight*/
-		qcom,kpdbl2 {
-			label = "kpdbl";
-			linux,name = "kpdbl-lut-2";
-			qcom,mode = "lpg";
-			qcom,pwm-channel = <9>;
-			qcom,pwm-us = <1000>;
 			qcom,start-idx = <1>;
+			qcom,ramp-step-ms = <120>;
 			qcom,duty-pcts = [00 00 00 00 64
 					64 00 00 00 00];
+			qcom,use-blink;
+			qcom,in-order-command-processing;
+		};
+/*OPPO yuyi 2013-09-27 modify end for button-backlight*/
+/*
+		qcom,kpdbl2 {
+			label = "kpdbl";
+			linux,name = "kpdbl-pwm-2";
+			qcom,mode = "pwm";
+			qcom,pwm-channel = <9>;
+			qcom,pwm-us = <1000>;
 			qcom,id = <7>;
 			qcom,max-current = <20>;
 			qcom,row-id = <1>;
 			qcom,row-src-en;
+                        qcom,start-idx = <1>;
+                        qcom,ramp-step-ms = <120>;
+                        qcom,duty-pcts = [00 00 00 00 64
+                                        64 00 00 00 00];
+                        qcom,use-blink;
+                        qcom,in-order-command-processing;
+
 		};
 
 		qcom,kpdbl3 {
@@ -209,6 +201,13 @@
 			qcom,max-current = <20>;
 			qcom,row-id = <2>;
 			qcom,row-src-en;
+                        qcom,start-idx = <1>;
+                        qcom,ramp-step-ms = <120>;
+                        qcom,duty-pcts = [00 00 00 00 64
+                                        64 00 00 00 00];
+                        qcom,use-blink;
+                        qcom,in-order-command-processing;
+
 		};
 
 		qcom,kpdbl4 {
@@ -221,6 +220,14 @@
 			qcom,max-current = <20>;
 			qcom,row-id = <3>;
 			qcom,row-src-en;
+                        qcom,start-idx = <1>;
+                        qcom,ramp-step-ms = <120>;
+                        qcom,duty-pcts = [00 00 00 00 64
+                                        64 00 00 00 00];
+                        qcom,use-blink;
+                        qcom,in-order-command-processing;
+
 		};
+		*/
 	};
 };
